@@ -1074,7 +1074,21 @@ async def cb_inbound_list(event):
     for ib in inbounds:
         icon = "✅" if ib.get("enable") else "🔴"
         clients = json.loads(ib.get("settings", "{}")).get("clients", [])
-        active = sum(1 for c in clients if c.get("enable", True))
+        stats = {cs["email"]: cs for cs in ib.get("clientStats") or []}
+        now_ms = int(time.time() * 1000)
+        active = 0
+        for c in clients:
+            if not c.get("enable", True):
+                continue
+            exp = c.get("expiryTime", 0)
+            if exp > 0 and exp < now_ms:
+                continue
+            limit = c.get("totalGB", 0)
+            if limit > 0:
+                cs = stats.get(c.get("email", ""))
+                if cs and cs.get("up", 0) + cs.get("down", 0) >= limit:
+                    continue
+            active += 1
         total = len(clients)
         label = f"{icon} {ib['remark']} [{active}/{total}]"
         btns.append([Button.inline(label, f"ib:{panel_name}:{ib['id']}".encode())])
