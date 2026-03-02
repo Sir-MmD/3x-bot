@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import random
+import secrets
 import string
 import time
 import tomllib
@@ -180,8 +181,11 @@ def _build_client_dict(
     protocol: str, stream: dict, settings: dict,
 ) -> dict:
     """Build a client dict with protocol-specific fields."""
+    _alnum = string.digits + string.ascii_lowercase + string.ascii_uppercase
+    _lower_num = string.digits + string.ascii_lowercase
+
     client_uuid = str(uuid.uuid4())
-    sub_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=16))
+    sub_id = "".join(secrets.choice(_lower_num) for _ in range(16))
 
     client_dict = {
         "id": client_uuid,
@@ -203,16 +207,11 @@ def _build_client_dict(
         if network == "tcp" and security in ("tls", "reality"):
             client_dict["flow"] = "xtls-rprx-vision"
     elif protocol == "trojan":
-        client_dict["password"] = client_uuid
+        client_dict["password"] = "".join(secrets.choice(_alnum) for _ in range(10))
     elif protocol == "shadowsocks":
         method = settings.get("method", "")
-        if "2022" in method:
-            key_len = 16 if "128" in method else 32
-            client_dict["password"] = b64encode(random.randbytes(key_len)).decode()
-        else:
-            client_dict["password"] = "".join(
-                random.choices(string.ascii_letters + string.digits, k=16)
-            )
+        key_len = 16 if method == "2022-blake3-aes-128-gcm" else 32
+        client_dict["password"] = b64encode(secrets.token_bytes(key_len)).decode()
 
     return client_dict
 
