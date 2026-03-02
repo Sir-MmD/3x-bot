@@ -10,6 +10,7 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Manage clients** — enable/disable, modify traffic & duration, reset usage, remove
 - **Bulk operations** — add/subtract days or traffic across all accounts in a panel, filtered by enabled/disabled/all
 - **PDF export** — account details with QR codes and subscription links
+- **Proxy support** — HTTP/SOCKS proxy for both Telegram and panel connections
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
 
 ## Quick Install
@@ -18,14 +19,7 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 bash <(curl -Ls https://raw.githubusercontent.com/Sir-MmD/3x-bot/main/install.sh)
 ```
 
-This launches an interactive menu to install, update, or uninstall the bot. Requires root.
-
-After installation, edit the config and start the service:
-
-```bash
-nano /opt/3x-bot/config.toml
-systemctl start 3x-bot
-```
+This launches an interactive menu to install, update, or uninstall the bot. The installer will guide you through configuration. Requires root.
 
 ## Manual Setup
 
@@ -45,6 +39,7 @@ api_id = 123456
 api_hash = "your_api_hash"
 token = "your_bot_token"
 allowed_users = [123456789]
+# proxy = "socks5://127.0.0.1:1080"  # optional, proxy for Telegram connection
 
 [[panels]]
 name = "Panel1"
@@ -52,12 +47,7 @@ url = "https://panel1.example.com:9092/path"
 username = "admin"
 password = "secret"
 # sub_url = "https://sub.example.com/sub"  # optional
-
-[[panels]]
-name = "Panel2"
-url = "https://panel2.example.com:9092/path"
-username = "admin"
-password = "secret"
+# proxy = "socks5://127.0.0.1:1080"  # optional, proxy for panel connection
 ```
 
 Run:
@@ -76,6 +66,8 @@ python bot.py
 | `name` | Panel nickname displayed in the bot UI and PDFs |
 | `url` | 3x-ui panel URL including base path |
 | `sub_url` | Optional subscription server URL |
+| `proxy` (bot) | Optional proxy for Telegram connection (`socks5://`, `socks4://`, `http://`) |
+| `proxy` (panel) | Optional proxy for panel API connection (`socks5://`, `http://`) |
 
 ## Requirements
 
