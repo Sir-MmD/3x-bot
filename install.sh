@@ -255,10 +255,10 @@ do_install() {
 
     write_service
     systemctl daemon-reload
-    systemctl enable "$SERVICE_NAME"
+    systemctl enable --now "$SERVICE_NAME"
 
     info "Installation complete!"
-    info "Start the bot with: systemctl start ${SERVICE_NAME}"
+    info "${SERVICE_NAME} is now running."
 }
 
 do_update() {
