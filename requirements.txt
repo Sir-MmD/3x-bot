@@ -1,0 +1,5 @@
+telethon
+httpx
+qrcode
+pillow
+fpdf2

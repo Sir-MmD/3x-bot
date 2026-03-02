@@ -1,0 +1,12 @@
+[bot]
+api_id = 123456
+api_hash = "your_api_hash"
+token = "your_bot_token"
+allowed_users = [123456789]
+
+[[panels]]
+name = "Panel1"
+url = "https://panel1.example.com:9092/path"
+username = "admin"
+password = "secret"
+# sub_url = "https://sub.example.com/sub"  # optional
