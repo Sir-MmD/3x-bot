@@ -115,6 +115,8 @@ def generate_bulk_emails(method: str, count: int, prefix: str = "", postfix: str
     for i in range(1, count + 1):
         if method == "r":
             emails.append(rand_email())
+        elif method == "rp":
+            emails.append(f"{rand_email()}_{prefix}")
         elif method == "pr":
             emails.append(f"{prefix}_{rand_email()}")
         elif method == "pnr":
@@ -331,6 +333,7 @@ async def on_message(event):
             buttons=[
                 [
                     Button.inline("🎲 Random", b"bkn:r"),
+                    Button.inline("Rand+Prefix", b"bkn:rp"),
                     Button.inline("Prefix+Rand", b"bkn:pr"),
                 ],
                 [
@@ -1070,7 +1073,10 @@ async def cb_inbound_list(event):
     btns = []
     for ib in inbounds:
         icon = "✅" if ib.get("enable") else "🔴"
-        label = f"{icon} {ib['remark']} ({ib['protocol']}:{ib['port']})"
+        clients = json.loads(ib.get("settings", "{}")).get("clients", [])
+        active = sum(1 for c in clients if c.get("enable", True))
+        total = len(clients)
+        label = f"{icon} {ib['remark']} [{active}/{total}]"
         btns.append([Button.inline(label, f"ib:{panel_name}:{ib['id']}".encode())])
     btns.append([Button.inline("⚡ Bulk Operation", f"bo:{panel_name}".encode())])
     btns.append([Button.inline("◀️ Back", b"m")])
