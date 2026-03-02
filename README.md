@@ -8,6 +8,7 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Search** — find clients by email across all panels
 - **Create accounts** — single or bulk (up to 100), with flexible naming schemes
 - **Manage clients** — enable/disable, modify traffic & duration, reset usage, remove
+- **Bulk operations** — add/subtract days or traffic across all accounts in a panel, filtered by enabled/disabled/all
 - **PDF export** — account details with QR codes and subscription links
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
 
