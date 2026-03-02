@@ -3,6 +3,7 @@ api_id = 123456
 api_hash = "your_api_hash"
 token = "your_bot_token"
 allowed_users = [123456789]
+# proxy = "socks5://127.0.0.1:1080"  # optional, proxy for Telegram connection
 
 [[panels]]
 name = "Panel1"

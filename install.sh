@@ -166,12 +166,13 @@ configure_bot() {
     print_separator
     echo
 
-    local api_id api_hash token allowed_users
+    local api_id api_hash token allowed_users bot_proxy
 
     read -rp " Telegram API ID: " api_id < /dev/tty
     read -rp " Telegram API Hash: " api_hash < /dev/tty
     read -rp " Bot Token: " token < /dev/tty
     read -rp " Allowed User IDs (comma-separated): " allowed_users < /dev/tty
+    read -rp " Bot Proxy (e.g. socks5://127.0.0.1:1080, leave empty to skip): " bot_proxy < /dev/tty
 
     # Format allowed_users as TOML array: "1,2,3" -> [1, 2, 3]
     local users_array
@@ -184,6 +185,10 @@ api_hash = "${api_hash}"
 token = "${token}"
 allowed_users = [${users_array}]
 EOF
+
+    if [[ -n "$bot_proxy" ]]; then
+        echo "proxy = \"${bot_proxy}\"" >> "$config_file"
+    fi
 
     local panel_num=1
     local add_more="y"
