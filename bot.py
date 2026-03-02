@@ -1090,7 +1090,7 @@ async def cb_inbound_list(event):
                     continue
             active += 1
         total = len(clients)
-        label = f"{icon} {ib['remark']} [{active}/{total}]"
+        label = f"{icon} {ib['remark']} | {ib['port']} [{active}/{total}]"
         btns.append([Button.inline(label, f"ib:{panel_name}:{ib['id']}".encode())])
     btns.append([Button.inline("⚡ Bulk Operation", f"bo:{panel_name}".encode())])
     btns.append([Button.inline("◀️ Back", b"m")])
