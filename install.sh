@@ -155,6 +155,78 @@ WantedBy=multi-user.target
 EOF
 }
 
+# --- Configuration ---
+
+configure_bot() {
+    local config_file="${INSTALL_DIR}/config.toml"
+
+    echo
+    print_separator
+    echo -e " ${BOLD}Bot Configuration${NC}"
+    print_separator
+    echo
+
+    local api_id api_hash token allowed_users
+
+    read -rp " Telegram API ID: " api_id < /dev/tty
+    read -rp " Telegram API Hash: " api_hash < /dev/tty
+    read -rp " Bot Token: " token < /dev/tty
+    read -rp " Allowed User IDs (comma-separated): " allowed_users < /dev/tty
+
+    # Format allowed_users as TOML array: "1,2,3" -> [1, 2, 3]
+    local users_array
+    users_array=$(echo "$allowed_users" | tr -d ' ' | sed 's/,/, /g')
+
+    cat > "$config_file" <<EOF
+[bot]
+api_id = ${api_id}
+api_hash = "${api_hash}"
+token = "${token}"
+allowed_users = [${users_array}]
+EOF
+
+    local panel_num=1
+    local add_more="y"
+
+    while [[ "$add_more" =~ ^[Yy]$ ]]; do
+        echo
+        print_separator
+        echo -e " ${BOLD}Panel #${panel_num}${NC}"
+        print_separator
+        echo
+
+        local name url username password sub_url
+
+        read -rp " Panel Name: " name < /dev/tty
+        read -rp " Panel URL (e.g. https://example.com:2053/path): " url < /dev/tty
+        read -rp " Username: " username < /dev/tty
+        read -rsp " Password: " password < /dev/tty
+        echo
+        read -rp " Subscription URL (leave empty to skip): " sub_url < /dev/tty
+
+        cat >> "$config_file" <<EOF
+
+[[panels]]
+name = "${name}"
+url = "${url}"
+username = "${username}"
+password = "${password}"
+EOF
+
+        if [[ -n "$sub_url" ]]; then
+            echo "sub_url = \"${sub_url}\"" >> "$config_file"
+        fi
+
+        panel_num=$((panel_num + 1))
+
+        echo
+        read -rp " Add another panel? [y/N]: " add_more < /dev/tty
+        add_more="${add_more:-n}"
+    done
+
+    info "Config saved to ${config_file}"
+}
+
 # --- Actions ---
 
 do_install() {
@@ -176,8 +248,7 @@ do_install() {
     "${INSTALL_DIR}/venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 
     if [[ ! -f "${INSTALL_DIR}/config.toml" ]]; then
-        info "Copying config.toml.example → config.toml"
-        cp "${INSTALL_DIR}/config.toml.example" "${INSTALL_DIR}/config.toml"
+        configure_bot
     else
         warn "config.toml already exists, skipping"
     fi
@@ -187,7 +258,7 @@ do_install() {
     systemctl enable "$SERVICE_NAME"
 
     info "Installation complete!"
-    info "Edit ${INSTALL_DIR}/config.toml, then run: systemctl start ${SERVICE_NAME}"
+    info "Start the bot with: systemctl start ${SERVICE_NAME}"
 }
 
 do_update() {
