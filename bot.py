@@ -702,27 +702,45 @@ async def _show_search_result(event, uid: int, email: str, panel_name: str | Non
         p = get_panel(panel_name)
         client, inbound, traffic = await p.find_client_by_email(email)
         found_panel = panel_name
+        if client is None:
+            await reply(
+                event,
+                "❌ User not found!",
+                buttons=[[Button.inline("◀️ Back", b"m")]],
+            )
+            return
     else:
-        # Search all panels, take first match
-        client, inbound, traffic, found_panel = None, None, None, None
+        # Search all panels
         async def _search_one(pname, pc):
             c, ib, tr = await pc.find_client_by_email(email)
             return pname, c, ib, tr
         results = await asyncio.gather(
             *(_search_one(pn, pc) for pn, pc in panels.items())
         )
-        for pn, c, ib, tr in results:
-            if c is not None:
-                client, inbound, traffic, found_panel = c, ib, tr, pn
-                break
+        matches = [(pn, c, ib, tr) for pn, c, ib, tr in results if c is not None]
 
-    if client is None:
-        await reply(
-            event,
-            "❌ User not found!",
-            buttons=[[Button.inline("◀️ Back", b"m")]],
-        )
-        return
+        if not matches:
+            await reply(
+                event,
+                "❌ User not found!",
+                buttons=[[Button.inline("◀️ Back", b"m")]],
+            )
+            return
+
+        if len(matches) > 1:
+            # Found on multiple panels — let user choose
+            s["sr_matches"] = {pn: (c, ib, tr) for pn, c, ib, tr in matches}
+            s["sr_email"] = email
+            btns = [[Button.inline(f"🖥 {pn}", f"srp:{pn}".encode())] for pn, *_ in matches]
+            btns.append([Button.inline("◀️ Back", b"m")])
+            await reply(
+                event,
+                f"🔍 `{email}` found on **{len(matches)} panels**.\nSelect one:",
+                buttons=btns,
+            )
+            return
+
+        found_panel, client, inbound, traffic = matches[0]
 
     p = get_panel(found_panel)
     protocol = inbound["protocol"]
@@ -787,6 +805,24 @@ async def _show_search_result(event, uid: int, email: str, panel_name: str | Non
         await reply(event, text, buttons=btns, file=qr)
     else:
         await reply(event, text, buttons=btns)
+
+
+# ── Search: Panel Selection (multi-panel match) ────────────────────────────
+
+@bot.on(events.CallbackQuery(pattern=rb"^srp:(.+)$"))
+@auth
+async def cb_search_panel_select(event):
+    panel_name = event.pattern_match.group(1).decode()
+    s = st(event.sender_id)
+    matches = s.get("sr_matches", {})
+    match = matches.get(panel_name)
+    if not match:
+        return
+    email = s["sr_email"]
+    # Load the selected result and show it
+    client, inbound, traffic = match
+    s.pop("sr_matches", None)
+    await _show_search_result(event, event.sender_id, email, panel_name=panel_name)
 
 
 # ── Toggle Enable / Disable ─────────────────────────────────────────────────

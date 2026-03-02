@@ -5,7 +5,7 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 ## Features
 
 - **Multi-panel support** — manage multiple 3x-ui panels from one bot
-- **Search** — find clients by email across all panels
+- **Search** — find clients by email across all panels (shows panel picker if found on multiple)
 - **Create accounts** — single or bulk (up to 100), with flexible naming schemes
 - **Manage clients** — enable/disable, modify traffic & duration, reset usage, remove
 - **Bulk operations** — add/subtract days or traffic across all accounts in a panel, filtered by enabled/disabled/all
