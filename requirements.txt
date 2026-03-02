@@ -1,5 +1,5 @@
-telethon
-httpx
-qrcode
-pillow
-fpdf2
+telethon==1.42.0
+httpx==0.28.1
+qrcode==8.2
+pillow==12.1.1
+fpdf2==2.8.7
