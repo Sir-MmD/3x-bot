@@ -6,12 +6,12 @@ import httpx
 
 
 class PanelClient:
-    def __init__(self, url: str, username: str, password: str, name: str = ""):
+    def __init__(self, url: str, username: str, password: str, name: str = "", proxy: str = ""):
         self.url = url.rstrip("/")
         self.username = username
         self.password = password
         self.name = name
-        self._client = httpx.AsyncClient(verify=False, timeout=15)
+        self._client = httpx.AsyncClient(verify=False, timeout=15, proxy=proxy or None)
         self._logged_in = False
 
     async def _request(self, method: str, path: str, **kwargs):

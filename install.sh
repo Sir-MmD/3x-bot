@@ -195,7 +195,7 @@ EOF
         print_separator
         echo
 
-        local name url username password sub_url
+        local name url username password sub_url proxy
 
         read -rp " Panel Name: " name < /dev/tty
         read -rp " Panel URL (e.g. https://example.com:2053/path): " url < /dev/tty
@@ -203,6 +203,7 @@ EOF
         read -rsp " Password: " password < /dev/tty
         echo
         read -rp " Subscription URL (leave empty to skip): " sub_url < /dev/tty
+        read -rp " Proxy (e.g. socks5://127.0.0.1:1080, leave empty to skip): " proxy < /dev/tty
 
         cat >> "$config_file" <<EOF
 
@@ -215,6 +216,9 @@ EOF
 
         if [[ -n "$sub_url" ]]; then
             echo "sub_url = \"${sub_url}\"" >> "$config_file"
+        fi
+        if [[ -n "$proxy" ]]; then
+            echo "proxy = \"${proxy}\"" >> "$config_file"
         fi
 
         panel_num=$((panel_num + 1))

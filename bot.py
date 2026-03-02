@@ -31,7 +31,7 @@ sub_urls: dict[str, str | None] = {}
 
 for pcfg in cfg["panels"]:
     name = pcfg["name"]
-    panels[name] = PanelClient(pcfg["url"], pcfg["username"], pcfg["password"], name=name)
+    panels[name] = PanelClient(pcfg["url"], pcfg["username"], pcfg["password"], name=name, proxy=pcfg.get("proxy", ""))
     server_addrs[name] = urlparse(pcfg["url"]).hostname
     sub_urls[name] = pcfg.get("sub_url", "").rstrip("/") or None
 

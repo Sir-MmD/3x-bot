@@ -1,5 +1,5 @@
 telethon==1.42.0
-httpx==0.28.1
+httpx[socks]==0.28.1
 qrcode==8.2
 pillow==12.1.1
 fpdf2==2.8.7
