@@ -12,7 +12,22 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **PDF export** — account details with QR codes and subscription links
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
 
-## Setup
+## Quick Install
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/Sir-MmD/3x-bot/main/install.sh)
+```
+
+This launches an interactive menu to install, update, or uninstall the bot. Requires root.
+
+After installation, edit the config and start the service:
+
+```bash
+nano /opt/3x-bot/config.toml
+systemctl start 3x-bot
+```
+
+## Manual Setup
 
 ```bash
 pip install -r requirements.txt
