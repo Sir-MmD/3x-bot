@@ -69,6 +69,24 @@ python bot.py
 | `proxy` (bot) | Optional proxy for Telegram connection (`socks5://`, `socks4://`, `http://`) |
 | `proxy` (panel) | Optional proxy for panel API connection (`socks5://`, `http://`) |
 
+## Project Structure
+
+```
+bot.py              Entry point — registers handlers and runs the bot
+config.py           Config loading, bot instance, panels, state management
+helpers.py          Formatting, QR, auth, reply, client dict builder
+panel.py            3x-ui API client and proxy link generation
+pdf_export.py       PDF generation with QR codes
+handlers/
+├── menu.py         /start, back-to-main
+├── search.py       Search, enable/disable, remove, PDF export
+├── modify.py       Modify traffic & duration
+├── create.py       Single & bulk account creation
+├── inbounds.py     Inbound list & detail
+├── bulk_ops.py     Bulk operations on clients
+└── router.py       Text input dispatcher (routes by state prefix)
+```
+
 ## Requirements
 
 - Python 3.12+
