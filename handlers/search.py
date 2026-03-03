@@ -3,7 +3,7 @@ import asyncio
 from telethon import events, Button
 
 from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot
-from helpers import format_bytes, format_expiry, make_qr, auth, reply
+from helpers import format_bytes, format_expiry, make_qr, auth, reply, search_result_buttons
 from panel import build_client_link
 from pdf_export import generate_account_pdf
 
@@ -113,13 +113,7 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
         lines += ["", f"`{proxy_link}`"]
     text = "\n".join(lines)
 
-    toggle_label = "🔴 Disable" if enabled else "🟢 Enable"
-    toggle_data = b"dis" if enabled else b"en"
-    btns = [
-        [Button.inline(toggle_label, toggle_data), Button.inline("🗑 Remove", b"rm")],
-        [Button.inline("📊 Traffic", b"mt"), Button.inline("⏳ Days", b"md")],
-        [Button.inline("📄 PDF", b"pdf"), Button.inline("◀️ Back", b"m")],
-    ]
+    btns = search_result_buttons(uid, enabled)
 
     if proxy_link:
         qr = make_qr(proxy_link)
@@ -130,7 +124,7 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
 
 def register(bot):
     @bot.on(events.CallbackQuery(data=b"s"))
-    @auth
+    @auth("search")
     async def cb_search(event):
         await reply(
             event,
@@ -139,7 +133,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^srp:(.+)$"))
-    @auth
+    @auth("search")
     async def cb_search_panel_select(event):
         panel_name = event.pattern_match.group(1).decode()
         s = st(event.sender_id)
@@ -153,7 +147,7 @@ def register(bot):
         await show_search_result(event, event.sender_id, email, panel_name=panel_name)
 
     @bot.on(events.CallbackQuery(data=b"dis"))
-    @auth
+    @auth("toggle")
     async def cb_disable(event):
         s = st(event.sender_id)
         client = s.get("sr_client")
@@ -165,7 +159,7 @@ def register(bot):
         await show_search_result(event, event.sender_id, s["sr_email"], panel_name=s["sr_pid"])
 
     @bot.on(events.CallbackQuery(data=b"en"))
-    @auth
+    @auth("toggle")
     async def cb_enable(event):
         s = st(event.sender_id)
         client = s.get("sr_client")
@@ -177,7 +171,7 @@ def register(bot):
         await show_search_result(event, event.sender_id, s["sr_email"], panel_name=s["sr_pid"])
 
     @bot.on(events.CallbackQuery(data=b"rm"))
-    @auth
+    @auth("remove")
     async def cb_remove(event):
         await reply(
             event,
@@ -191,7 +185,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"crm"))
-    @auth
+    @auth("remove")
     async def cb_confirm_remove(event):
         s = st(event.sender_id)
         cid = s.get("sr_cid")
@@ -209,7 +203,7 @@ def register(bot):
         await reply(event, text, buttons=[[Button.inline("◀️ Back", b"m")]])
 
     @bot.on(events.CallbackQuery(data=b"sr"))
-    @auth
+    @auth("search")
     async def cb_back_to_search(event):
         s = st(event.sender_id)
         s["state"] = None
@@ -219,7 +213,7 @@ def register(bot):
         await show_search_result(event, event.sender_id, email, panel_name=s.get("sr_pid"))
 
     @bot.on(events.CallbackQuery(data=b"pdf"))
-    @auth
+    @auth("pdf")
     async def cb_export_pdf(event):
         s = st(event.sender_id)
         client = s.get("sr_client")

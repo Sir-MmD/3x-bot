@@ -1,6 +1,6 @@
 from telethon import events, Button
 
-from config import st
+from config import st, has_perm
 from helpers import auth
 from handlers.search import show_search_result
 from handlers.modify import handle_modify_traffic_input, handle_modify_days_input
@@ -43,6 +43,8 @@ def register(bot):
                 return
 
         # ── Default: search ──────────────────────────────────────────────
+        if not has_perm(event.sender_id, "search"):
+            return
         email = event.text.strip()
         searching_msg = await event.respond("🔍 Searching...")
         try:

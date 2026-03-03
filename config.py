@@ -12,7 +12,33 @@ from panel import PanelClient
 cfg = tomllib.loads(Path("config.toml").read_text())
 bot_cfg = cfg["bot"]
 
-ALLOWED = set(bot_cfg["allowed_users"])
+# ── Permissions ───────────────────────────────────────────────────────────
+
+ALL_PERMS = {"search", "create", "modify", "toggle", "remove", "bulk", "pdf"}
+
+admins: dict[int, set[str]] = {}
+for a in cfg.get("admins", []):
+    admins[a["id"]] = set(a.get("permissions", []))
+
+public_mode: bool = bot_cfg.get("public", False)
+public_perms: set[str] = set(bot_cfg.get("public_permissions", []))
+force_join: list[str] = bot_cfg.get("force_join", [])
+
+
+def user_perms(uid: int) -> set[str]:
+    """Return resolved permission set for a user."""
+    if uid in admins:
+        p = admins[uid]
+        return ALL_PERMS if "*" in p else p
+    if public_mode:
+        return ALL_PERMS if "*" in public_perms else public_perms
+    return set()
+
+
+def has_perm(uid: int, perm: str) -> bool:
+    """Check if a user has a specific permission."""
+    return perm in user_perms(uid)
+
 
 panels: dict[str, PanelClient] = {}
 server_addrs: dict[str, str] = {}

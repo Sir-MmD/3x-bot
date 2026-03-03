@@ -3,13 +3,13 @@ import time
 
 from telethon import events, Button
 
-from config import get_panel, clear
+from config import get_panel, clear, has_perm
 from helpers import auth, reply
 
 
 def register(bot):
     @bot.on(events.CallbackQuery(pattern=rb"^il:(.+)$"))
-    @auth
+    @auth("search")
     async def cb_inbound_list(event):
         clear(event.sender_id)
         panel_name = event.pattern_match.group(1).decode()
@@ -37,12 +37,13 @@ def register(bot):
             total = len(clients)
             label = f"{icon} {ib['remark']} | {ib['port']} [{active}/{total}]"
             btns.append([Button.inline(label, f"ib:{panel_name}:{ib['id']}".encode())])
-        btns.append([Button.inline("⚡ Bulk Operation", f"bo:{panel_name}".encode())])
+        if has_perm(event.sender_id, "bulk"):
+            btns.append([Button.inline("⚡ Bulk Operation", f"bo:{panel_name}".encode())])
         btns.append([Button.inline("◀️ Back", b"m")])
         await reply(event, f"📋 **Inbounds — {panel_name}:**", buttons=btns)
 
     @bot.on(events.CallbackQuery(pattern=rb"^ib:(.+):(\d+)$"))
-    @auth
+    @auth("search")
     async def cb_inbound_detail(event):
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
@@ -69,11 +70,11 @@ def register(bot):
             f"👥 Clients: {len(clients)}",
         ]
         text = "\n".join(lines)
-        btns = [
-            [
+        btns = []
+        if has_perm(event.sender_id, "create"):
+            btns.append([
                 Button.inline("➕ Create Account", f"ca:{panel_name}:{iid}".encode()),
                 Button.inline("📦 Bulk Create", f"bk:{panel_name}:{iid}".encode()),
-            ],
-            [Button.inline("◀️ Back", f"il:{panel_name}".encode())],
-        ]
+            ])
+        btns.append([Button.inline("◀️ Back", f"il:{panel_name}".encode())])
         await reply(event, text, buttons=btns)

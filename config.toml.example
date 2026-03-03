@@ -2,8 +2,22 @@
 api_id = 123456
 api_hash = "your_api_hash"
 token = "your_bot_token"
-allowed_users = [123456789]
 # proxy = "socks5://127.0.0.1:1080"  # optional, proxy for Telegram connection
+
+# Public mode: allow everyone to use the bot with these permissions
+# public = true
+# public_permissions = ["search", "pdf"]
+
+# Force users to join these channels before using the bot
+# force_join = ["@channel1", "@channel2"]
+
+[[admins]]
+id = 123456789
+permissions = ["*"]  # all permissions
+
+# [[admins]]
+# id = 987654321
+# permissions = ["search", "create", "pdf"]
 
 [[panels]]
 name = "Panel1"
