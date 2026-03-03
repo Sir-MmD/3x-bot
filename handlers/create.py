@@ -3,7 +3,7 @@ import time
 
 from telethon import events, Button
 
-from config import get_panel, st, clear, server_addrs, sub_urls, bot
+from config import get_panel, st, clear, server_addrs, sub_urls, bot, user_inbounds
 from helpers import (
     format_bytes, format_expiry, rand_email, generate_bulk_emails,
     make_qr, auth, reply, build_client_dict,
@@ -446,6 +446,9 @@ def register(bot):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
+        allowed = user_inbounds(uid, panel_name)
+        if allowed is not None and iid not in allowed:
+            return
         s = st(uid)
         s["state"] = "cr_email"
         s["cr_iid"] = iid
@@ -492,6 +495,9 @@ def register(bot):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
+        allowed = user_inbounds(uid, panel_name)
+        if allowed is not None and iid not in allowed:
+            return
         s = st(uid)
         s["bk_iid"] = iid
         s["bk_pid"] = panel_name

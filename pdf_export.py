@@ -1,4 +1,5 @@
 import io
+import sys
 import tempfile
 from pathlib import Path
 
@@ -7,7 +8,8 @@ from fpdf import FPDF
 from db import get_user_lang
 from i18n import t, is_rtl
 
-_FONTS_DIR = Path(__file__).parent / "fonts"
+_BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+_FONTS_DIR = _BASE_DIR / "fonts"
 _VAZIRMATN = _FONTS_DIR / "Vazirmatn-Regular.ttf"
 _NOTOSANS = _FONTS_DIR / "NotoSans-Regular.ttf"
 

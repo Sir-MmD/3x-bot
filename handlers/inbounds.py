@@ -4,7 +4,7 @@ import time
 
 from telethon import events, Button
 
-from config import get_panel, clear, has_perm, user_perms
+from config import get_panel, clear, has_perm, user_perms, visible_panels, visible_inbounds, user_inbounds
 from helpers import auth, reply, format_client_line
 from i18n import t
 
@@ -20,6 +20,8 @@ def register(bot):
         uid = event.sender_id
         clear(uid)
         panel_name = event.pattern_match.group(1).decode()
+        if panel_name not in visible_panels(uid):
+            return
         perms = user_perms(uid)
         btns = []
         if perms & {"create", "bulk"}:
@@ -39,6 +41,7 @@ def register(bot):
         panel_name = event.pattern_match.group(1).decode()
         p = get_panel(panel_name)
         inbounds = await p.list_inbounds()
+        inbounds = visible_inbounds(uid, panel_name, inbounds)
         btns = []
         for ib in inbounds:
             icon = "\u2705" if ib.get("enable") else "\U0001f534"
@@ -67,6 +70,9 @@ def register(bot):
     # ── Client list ─────────────────────────────────────────────────────
 
     async def _show_client_list(event, uid, panel_name, iid, page=1):
+        allowed = user_inbounds(uid, panel_name)
+        if allowed is not None and iid not in allowed:
+            return
         p = get_panel(panel_name)
         inbounds = await p.list_inbounds()
         inbound = next((ib for ib in inbounds if ib["id"] == iid), None)
@@ -146,6 +152,9 @@ def register(bot):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
+        allowed = user_inbounds(uid, panel_name)
+        if allowed is not None and iid not in allowed:
+            return
         await reply(
             event,
             t("confirm_reset_all_traffic", uid),
@@ -161,6 +170,9 @@ def register(bot):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
+        allowed = user_inbounds(uid, panel_name)
+        if allowed is not None and iid not in allowed:
+            return
         p = get_panel(panel_name)
         try:
             await p.reset_all_client_traffics(iid)
@@ -182,6 +194,9 @@ def register(bot):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
+        allowed = user_inbounds(uid, panel_name)
+        if allowed is not None and iid not in allowed:
+            return
         await reply(
             event,
             t("confirm_delete_depleted", uid),
@@ -197,6 +212,9 @@ def register(bot):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
+        allowed = user_inbounds(uid, panel_name)
+        if allowed is not None and iid not in allowed:
+            return
         p = get_panel(panel_name)
         try:
             await p.delete_depleted_clients(iid)

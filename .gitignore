@@ -2,3 +2,6 @@ __pycache__/
 *.session
 config.toml
 users.db
+3x-bot.db
+build/
+dist/

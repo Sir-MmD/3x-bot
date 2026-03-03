@@ -1,10 +1,11 @@
+import json
 import sqlite3
 import time
 from pathlib import Path
 
 _DB_PATH = str(Path.home() / "3x-bot" / "3x-bot.db")
 _lang_cache: dict[int, str] = {}
-_admins_cache: dict[int, tuple[set[str], bool]] | None = None
+_admins_cache: dict[int, tuple[set[str], bool, set[str], dict[str, set[int] | None]]] | None = None
 _panels_cache: list[dict] | None = None
 _settings_cache: dict[str, str] | None = None
 
@@ -45,6 +46,16 @@ def init_db():
             value TEXT NOT NULL
         )"""
     )
+    # Migration: add panels column to db_admins
+    try:
+        con.execute("ALTER TABLE db_admins ADD COLUMN panels TEXT NOT NULL DEFAULT '*'")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    # Migration: add inbounds column to db_admins
+    try:
+        con.execute("ALTER TABLE db_admins ADD COLUMN inbounds TEXT NOT NULL DEFAULT '{}'")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     con.commit()
     con.close()
 
@@ -76,29 +87,65 @@ def set_user_lang(uid: int, lang: str):
 
 # ── DB Admins ────────────────────────────────────────────────────────────────
 
-def get_db_admins() -> dict[int, tuple[set[str], bool]]:
+def _parse_inbounds_json(raw: str) -> dict[str, set[int] | None]:
+    """Parse inbounds JSON string → {panel: set of IDs or None}."""
+    try:
+        d = json.loads(raw) if raw else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    result: dict[str, set[int] | None] = {}
+    for panel, val in d.items():
+        if val == "*":
+            result[panel] = None
+        else:
+            result[panel] = {int(x) for x in str(val).split(",") if x.strip()}
+    return result
+
+
+def _serialize_inbounds(d: dict[str, set[int] | None]) -> str:
+    """Serialize inbounds dict → JSON string."""
+    out: dict[str, str] = {}
+    for panel, ids in d.items():
+        if ids is None:
+            out[panel] = "*"
+        else:
+            out[panel] = ",".join(str(i) for i in sorted(ids))
+    return json.dumps(out)
+
+
+def get_db_admins() -> dict[int, tuple[set[str], bool, set[str], dict[str, set[int] | None]]]:
     global _admins_cache
     if _admins_cache is not None:
         return _admins_cache
     con = sqlite3.connect(_DB_PATH)
-    rows = con.execute("SELECT user_id, permissions, is_owner FROM db_admins").fetchall()
+    rows = con.execute("SELECT user_id, permissions, is_owner, panels, inbounds FROM db_admins").fetchall()
     con.close()
-    result: dict[int, tuple[set[str], bool]] = {}
-    for uid, perms_str, is_owner in rows:
+    result: dict[int, tuple[set[str], bool, set[str], dict[str, set[int] | None]]] = {}
+    for uid, perms_str, is_owner, panels_str, inbounds_str in rows:
         perms = set(perms_str.split(",")) if perms_str else set()
         perms.discard("")
-        result[uid] = (perms, bool(is_owner))
+        admin_panels = set(panels_str.split(",")) if panels_str else {"*"}
+        admin_panels.discard("")
+        inbounds = _parse_inbounds_json(inbounds_str)
+        result[uid] = (perms, bool(is_owner), admin_panels, inbounds)
     _admins_cache = result
     return result
 
 
-def add_db_admin(uid: int, perms: set[str], is_owner: bool, added_by: int):
+def add_db_admin(uid: int, perms: set[str], is_owner: bool, added_by: int,
+                  admin_panels: set[str] | None = None,
+                  admin_inbounds: dict[str, set[int] | None] | None = None):
     global _admins_cache
+    if admin_panels is None:
+        admin_panels = {"*"}
+    if admin_inbounds is None:
+        admin_inbounds = {}
     con = sqlite3.connect(_DB_PATH)
     con.execute(
-        "INSERT INTO db_admins (user_id, permissions, is_owner, added_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (uid, ",".join(sorted(perms)), int(is_owner), added_by, time.time()),
+        "INSERT INTO db_admins (user_id, permissions, is_owner, added_by, created_at, panels, inbounds)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (uid, ",".join(sorted(perms)), int(is_owner), added_by, time.time(),
+         ",".join(sorted(admin_panels)), _serialize_inbounds(admin_inbounds)),
     )
     con.commit()
     con.close()
@@ -136,6 +183,127 @@ def update_db_admin_owner(uid: int, is_owner: bool):
     con.commit()
     con.close()
     _admins_cache = None
+
+
+def update_db_admin_inbounds(uid: int, inbounds: dict[str, set[int] | None]):
+    global _admins_cache
+    con = sqlite3.connect(_DB_PATH)
+    con.execute(
+        "UPDATE db_admins SET inbounds = ? WHERE user_id = ?",
+        (_serialize_inbounds(inbounds), uid),
+    )
+    con.commit()
+    con.close()
+    _admins_cache = None
+
+
+def update_db_admin_panels(uid: int, panel_names: set[str]):
+    global _admins_cache
+    con = sqlite3.connect(_DB_PATH)
+    con.execute(
+        "UPDATE db_admins SET panels = ? WHERE user_id = ?",
+        (",".join(sorted(panel_names)) if panel_names else "*", uid),
+    )
+    con.commit()
+    con.close()
+    _admins_cache = None
+
+
+def rename_panel_in_admins(old: str, new: str):
+    """Update panel name in all admin records (panels + inbounds)."""
+    global _admins_cache
+    con = sqlite3.connect(_DB_PATH)
+    rows = con.execute("SELECT user_id, panels, inbounds FROM db_admins").fetchall()
+    for uid, panels_str, inbounds_str in rows:
+        changed = False
+        pset = set(panels_str.split(",")) if panels_str else set()
+        if old in pset:
+            pset.discard(old)
+            pset.add(new)
+            con.execute("UPDATE db_admins SET panels = ? WHERE user_id = ?",
+                        (",".join(sorted(pset)), uid))
+            changed = True
+        ib = _parse_inbounds_json(inbounds_str)
+        if old in ib:
+            ib[new] = ib.pop(old)
+            con.execute("UPDATE db_admins SET inbounds = ? WHERE user_id = ?",
+                        (_serialize_inbounds(ib), uid))
+            changed = True
+    con.commit()
+    con.close()
+    _admins_cache = None
+
+
+def remove_panel_from_admins(name: str):
+    """Remove a panel from all admin records (panels + inbounds)."""
+    global _admins_cache
+    con = sqlite3.connect(_DB_PATH)
+    rows = con.execute("SELECT user_id, panels, inbounds FROM db_admins").fetchall()
+    for uid, panels_str, inbounds_str in rows:
+        pset = set(panels_str.split(",")) if panels_str else set()
+        if name in pset:
+            pset.discard(name)
+            if not pset:
+                pset = {"*"}
+            con.execute("UPDATE db_admins SET panels = ? WHERE user_id = ?",
+                        (",".join(sorted(pset)), uid))
+        ib = _parse_inbounds_json(inbounds_str)
+        if name in ib:
+            del ib[name]
+            con.execute("UPDATE db_admins SET inbounds = ? WHERE user_id = ?",
+                        (_serialize_inbounds(ib), uid))
+    con.commit()
+    con.close()
+    _admins_cache = None
+
+
+def rename_panel_in_settings(old: str, new: str):
+    """Update panel name in public_panels and public_inbounds settings."""
+    global _settings_cache
+    con = sqlite3.connect(_DB_PATH)
+    row = con.execute("SELECT value FROM settings WHERE key = 'public_panels'").fetchone()
+    if row:
+        pset = set(row[0].split(",")) if row[0] else set()
+        if old in pset:
+            pset.discard(old)
+            pset.add(new)
+            con.execute("UPDATE settings SET value = ? WHERE key = 'public_panels'",
+                        (",".join(sorted(pset)),))
+    row2 = con.execute("SELECT value FROM settings WHERE key = 'public_inbounds'").fetchone()
+    if row2:
+        ib = _parse_inbounds_json(row2[0])
+        if old in ib:
+            ib[new] = ib.pop(old)
+            con.execute("UPDATE settings SET value = ? WHERE key = 'public_inbounds'",
+                        (_serialize_inbounds(ib),))
+    con.commit()
+    _settings_cache = None
+    con.close()
+
+
+def remove_panel_from_settings(name: str):
+    """Remove a panel from public_panels and public_inbounds settings."""
+    global _settings_cache
+    con = sqlite3.connect(_DB_PATH)
+    row = con.execute("SELECT value FROM settings WHERE key = 'public_panels'").fetchone()
+    if row:
+        pset = set(row[0].split(",")) if row[0] else set()
+        if name in pset:
+            pset.discard(name)
+            if not pset:
+                pset = {"*"}
+            con.execute("UPDATE settings SET value = ? WHERE key = 'public_panels'",
+                        (",".join(sorted(pset)),))
+    row2 = con.execute("SELECT value FROM settings WHERE key = 'public_inbounds'").fetchone()
+    if row2:
+        ib = _parse_inbounds_json(row2[0])
+        if name in ib:
+            del ib[name]
+            con.execute("UPDATE settings SET value = ? WHERE key = 'public_inbounds'",
+                        (_serialize_inbounds(ib),))
+    con.commit()
+    _settings_cache = None
+    con.close()
 
 
 # ── DB Panels ────────────────────────────────────────────────────────────────

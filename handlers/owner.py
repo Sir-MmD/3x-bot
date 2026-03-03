@@ -9,12 +9,15 @@ from telethon import events, Button
 import config as _config_mod
 from config import (
     st, clear, user_perms, is_owner, _count_owners,
-    ALL_PERMS, owner_id, panels, register_panel, unregister_panel,
+    ALL_PERMS, owner_id, panels, get_panel, register_panel, unregister_panel,
     sub_urls, bot, DATA_DIR, _CONFIG_PATH, load_db_panels,
 )
 from db import (
     get_db_admins, add_db_admin, remove_db_admin,
-    update_db_admin_perms, update_db_admin_owner,
+    update_db_admin_perms, update_db_admin_owner, update_db_admin_panels,
+    update_db_admin_inbounds, _parse_inbounds_json, _serialize_inbounds,
+    rename_panel_in_admins, remove_panel_from_admins,
+    rename_panel_in_settings, remove_panel_from_settings,
     get_db_panel, add_db_panel, remove_db_panel,
     update_db_panel_field, rename_db_panel,
     get_setting, set_setting,
@@ -47,8 +50,10 @@ def _all_admins() -> dict[int, dict]:
         "raw_perms": {"*"},
         "is_owner": True,
         "source": "config",
+        "panels": {"*"},
+        "inbounds": {},
     }
-    for uid, (perms, db_is_owner) in get_db_admins().items():
+    for uid, (perms, db_is_owner, admin_panels, admin_inbounds) in get_db_admins().items():
         if uid == owner_id:
             continue
         result[uid] = {
@@ -56,6 +61,8 @@ def _all_admins() -> dict[int, dict]:
             "raw_perms": perms,
             "is_owner": db_is_owner,
             "source": "db",
+            "panels": admin_panels,
+            "inbounds": admin_inbounds,
         }
     return result
 
@@ -66,6 +73,27 @@ def _format_perms(perms: set[str]) -> str:
     if not perms:
         return "none"
     return ", ".join(f"`{p}`" for p in sorted(perms))
+
+
+def _format_panels(panel_set: set[str]) -> str:
+    if "*" in panel_set:
+        return "`*` (all)"
+    if not panel_set:
+        return "none"
+    return ", ".join(f"`{p}`" for p in sorted(panel_set))
+
+
+def _format_inbounds(ib_map: dict[str, set[int] | None]) -> str:
+    if not ib_map:
+        return "`*` (all)"
+    parts = []
+    for panel in sorted(ib_map):
+        ids = ib_map[panel]
+        if ids is None:
+            parts.append(f"`{panel}`: all")
+        else:
+            parts.append(f"`{panel}`: {','.join(str(i) for i in sorted(ids))}")
+    return "\n".join(parts)
 
 
 def _back_btn(uid: int, data: bytes):
@@ -111,6 +139,8 @@ async def _show_admin_detail(event, uid: int, target_uid: int):
             t("op_admin_uid", uid, id=target_uid),
             t("op_admin_is_owner", uid),
             t("op_admin_perms", uid, perms="`*` (all)"),
+            t("op_admin_panels", uid, panels="`*` (all)"),
+            t("op_admin_inbounds", uid, inbounds="`*` (all)"),
             t("op_config_owner_notice", uid),
         ]
         btns = [[Button.inline(t("btn_back", uid), b"op:admins")]]
@@ -122,12 +152,14 @@ async def _show_admin_detail(event, uid: int, target_uid: int):
         await _show_admin_list(event, uid)
         return
 
-    raw, db_is_owner = db_admins[target_uid]
+    raw, db_is_owner, admin_panels, admin_inbounds = db_admins[target_uid]
     lines = [
         t("op_admin_detail_title", uid),
         t("op_admin_uid", uid, id=target_uid),
         t("op_admin_is_owner", uid) if db_is_owner else t("op_admin_is_admin", uid),
         t("op_admin_perms", uid, perms=_format_perms(raw)),
+        t("op_admin_panels", uid, panels=_format_panels(admin_panels)),
+        t("op_admin_inbounds", uid, inbounds=_format_inbounds(admin_inbounds)),
     ]
     text = "\n".join(lines)
 
@@ -137,6 +169,8 @@ async def _show_admin_detail(event, uid: int, target_uid: int):
         on = has_star or p in raw
         label = t("op_perm_on", uid, perm=p) if on else t("op_perm_off", uid, perm=p)
         btns.append([Button.inline(label, f"op:tp:{target_uid}:{p}".encode())])
+    btns.append([Button.inline(t("btn_edit_panels", uid), f"op:ep:{target_uid}".encode())])
+    btns.append([Button.inline(t("btn_edit_inbounds", uid), f"op:ei:{target_uid}".encode())])
     btns.append([Button.inline(t("btn_toggle_owner", uid), f"op:tow:{target_uid}".encode())])
     if target_uid != uid:
         btns.append([Button.inline(t("btn_remove_admin", uid), f"op:ra:{target_uid}".encode())])
@@ -219,6 +253,8 @@ async def _show_panel_detail(event, uid: int, name: str):
 async def _show_settings(event, uid: int):
     pub = get_setting("public_mode") == "1"
     pub_perms = get_setting("public_permissions")
+    pub_panels_raw = get_setting("public_panels", "*")
+    pub_inbounds_raw = get_setting("public_inbounds", "{}")
     fj = get_setting("force_join")
 
     lines = [t("op_settings_title", uid)]
@@ -227,6 +263,11 @@ async def _show_settings(event, uid: int):
         pp = set(pub_perms.split(",")) if pub_perms else set()
         pp.discard("")
         lines.append(t("op_public_perms_label", uid, perms=_format_perms(pp)))
+        pub_pset = set(pub_panels_raw.split(",")) if pub_panels_raw else {"*"}
+        pub_pset.discard("")
+        lines.append(t("op_public_panels_label", uid, panels=_format_panels(pub_pset)))
+        pub_ib = _parse_inbounds_json(pub_inbounds_raw)
+        lines.append(t("op_public_inbounds_label", uid, inbounds=_format_inbounds(pub_ib)))
     else:
         lines.append(t("op_public_mode_off", uid))
     if fj:
@@ -239,6 +280,8 @@ async def _show_settings(event, uid: int):
     ]
     if pub:
         btns.append([Button.inline(t("btn_edit_public_perms", uid), b"op:epp")])
+        btns.append([Button.inline(t("btn_edit_public_panels", uid), b"op:eppp")])
+        btns.append([Button.inline(t("btn_edit_public_inbounds", uid), b"op:eppi")])
     btns.append([Button.inline(t("btn_edit_force_join", uid), b"op:efj")])
     btns.append([Button.inline(t("btn_back", uid), b"op")])
     await reply(event, "\n".join(lines), buttons=btns)
@@ -285,6 +328,154 @@ async def _show_perm_picker(event, uid: int):
     btns.append([Button.inline(t("btn_confirm_add", uid), b"op:aac")])
     btns.append([Button.inline(t("btn_back", uid), b"op:admins")])
     await reply(event, t("op_add_admin_pick_perms", uid, id=target_uid), buttons=btns)
+
+
+# ── Admin Panel Picker ─────────────────────────────────────────────────────
+
+async def _show_admin_panel_picker(event, uid: int, target_uid: int, selected: set[str]):
+    has_star = "*" in selected
+    btns = []
+    for name in sorted(panels):
+        on = has_star or name in selected
+        label = t("op_perm_on", uid, perm=name) if on else t("op_perm_off", uid, perm=name)
+        btns.append([Button.inline(label, f"op:epa:{target_uid}:{name}".encode())])
+    if has_star:
+        btns.append([Button.inline(t("btn_deselect_all", uid), f"op:epa:{target_uid}:*".encode())])
+    else:
+        btns.append([Button.inline(t("btn_select_all", uid), f"op:epa:{target_uid}:*".encode())])
+    btns.append([Button.inline(t("btn_confirm_add", uid), f"op:epac:{target_uid}".encode())])
+    btns.append([Button.inline(t("btn_back", uid), f"op:ad:{target_uid}".encode())])
+    await reply(event, t("op_edit_admin_panels_title", uid, id=target_uid), buttons=btns)
+
+
+# ── Add Admin Panel Picker ─────────────────────────────────────────────────
+
+async def _show_add_admin_panel_picker(event, uid: int):
+    s = st(uid)
+    target_uid = s.get("op_aa_target")
+    selected = s.get("op_aa_panels", {"*"})
+    has_star = "*" in selected
+
+    btns = []
+    for name in sorted(panels):
+        on = has_star or name in selected
+        label = t("op_perm_on", uid, perm=name) if on else t("op_perm_off", uid, perm=name)
+        btns.append([Button.inline(label, f"op:aapn:{name}".encode())])
+    if has_star:
+        btns.append([Button.inline(t("btn_deselect_all", uid), b"op:aapn:*")])
+    else:
+        btns.append([Button.inline(t("btn_select_all", uid), b"op:aapn:*")])
+    btns.append([Button.inline(t("btn_confirm_add", uid), b"op:aapnc")])
+    btns.append([Button.inline(t("btn_back", uid), b"op:admins")])
+    await reply(event, t("op_add_admin_pick_panels", uid, id=target_uid), buttons=btns)
+
+
+# ── Public Panel Picker ───────────────────────────────────────────────────
+
+async def _show_public_panel_picker(event, uid: int):
+    s = st(uid)
+    selected = s.get("op_ppp_panels", {"*"})
+    has_star = "*" in selected
+
+    btns = []
+    for name in sorted(panels):
+        on = has_star or name in selected
+        label = t("op_perm_on", uid, perm=name) if on else t("op_perm_off", uid, perm=name)
+        btns.append([Button.inline(label, f"op:eppp:{name}".encode())])
+    if has_star:
+        btns.append([Button.inline(t("btn_deselect_all", uid), b"op:eppp:*")])
+    else:
+        btns.append([Button.inline(t("btn_select_all", uid), b"op:eppp:*")])
+    btns.append([Button.inline(t("btn_confirm_add", uid), b"op:epppc")])
+    btns.append([Button.inline(t("btn_back", uid), b"op:set")])
+    await reply(event, t("op_edit_public_panels_title", uid), buttons=btns)
+
+
+# ── Admin Inbound Editor Helpers ───────────────────────────────────────────
+
+async def _show_admin_inbound_panel_list(event, uid: int, target_uid: int):
+    """Show panels the admin has access to — click one to edit its inbounds."""
+    db_admins = get_db_admins()
+    if target_uid not in db_admins:
+        await _show_admin_list(event, uid)
+        return
+    _, _, admin_panels, admin_inbounds = db_admins[target_uid]
+    panel_names = sorted(panels) if "*" in admin_panels else sorted(admin_panels & set(panels))
+    btns = []
+    for name in panel_names:
+        ib_ids = admin_inbounds.get(name)
+        suffix = " [restricted]" if ib_ids is not None else ""
+        btns.append([Button.inline(f"🖥 {name}{suffix}", f"op:eip:{target_uid}:{name}".encode())])
+    btns.append([Button.inline(t("btn_back", uid), f"op:ad:{target_uid}".encode())])
+    await reply(event, t("op_edit_inbounds_panel_list", uid, id=target_uid), buttons=btns)
+
+
+async def _show_admin_inbound_picker(event, uid: int, target_uid: int, panel_name: str):
+    """Show inbound toggle list for a specific panel."""
+    s = st(uid)
+    selected = s.get("op_ei_selected", set())
+    select_all = s.get("op_ei_all", False)
+
+    p = get_panel(panel_name)
+    inbound_list = await p.list_inbounds()
+    s["op_ei_inbound_list"] = inbound_list  # cache for redraws
+
+    btns = []
+    for ib in inbound_list:
+        iid = ib["id"]
+        on = select_all or iid in selected
+        label = t("op_perm_on", uid, perm=ib["remark"]) if on else t("op_perm_off", uid, perm=ib["remark"])
+        btns.append([Button.inline(label, f"op:eipt:{target_uid}:{panel_name}:{iid}".encode())])
+    if select_all:
+        btns.append([Button.inline(t("btn_deselect_all", uid), f"op:eips:{target_uid}:{panel_name}".encode())])
+    else:
+        btns.append([Button.inline(t("btn_select_all", uid), f"op:eips:{target_uid}:{panel_name}".encode())])
+    btns.append([Button.inline(t("btn_confirm_add", uid), f"op:eipc:{target_uid}:{panel_name}".encode())])
+    btns.append([Button.inline(t("btn_back", uid), f"op:ei:{target_uid}".encode())])
+    await reply(event, t("op_edit_inbounds_title", uid, id=target_uid, panel=panel_name), buttons=btns)
+
+
+# ── Public Inbound Editor Helpers ─────────────────────────────────────────
+
+async def _show_public_inbound_panel_list(event, uid: int):
+    """Show panels for public inbound editing."""
+    pub_panels_raw = get_setting("public_panels", "*")
+    pub_pset = set(pub_panels_raw.split(",")) if pub_panels_raw else {"*"}
+    pub_pset.discard("")
+    pub_inbounds = _parse_inbounds_json(get_setting("public_inbounds", "{}"))
+    panel_names = sorted(panels) if "*" in pub_pset else sorted(pub_pset & set(panels))
+    btns = []
+    for name in panel_names:
+        ib_ids = pub_inbounds.get(name)
+        suffix = " [restricted]" if ib_ids is not None else ""
+        btns.append([Button.inline(f"🖥 {name}{suffix}", f"op:eppip:{name}".encode())])
+    btns.append([Button.inline(t("btn_back", uid), b"op:set")])
+    await reply(event, t("op_edit_public_inbounds_panel_list", uid), buttons=btns)
+
+
+async def _show_public_inbound_picker(event, uid: int, panel_name: str):
+    """Show inbound toggle list for public inbound editing."""
+    s = st(uid)
+    selected = s.get("op_epi_selected", set())
+    select_all = s.get("op_epi_all", False)
+
+    p = get_panel(panel_name)
+    inbound_list = await p.list_inbounds()
+    s["op_epi_inbound_list"] = inbound_list
+
+    btns = []
+    for ib in inbound_list:
+        iid = ib["id"]
+        on = select_all or iid in selected
+        label = t("op_perm_on", uid, perm=ib["remark"]) if on else t("op_perm_off", uid, perm=ib["remark"])
+        btns.append([Button.inline(label, f"op:eppit:{panel_name}:{iid}".encode())])
+    if select_all:
+        btns.append([Button.inline(t("btn_deselect_all", uid), f"op:eppis:{panel_name}".encode())])
+    else:
+        btns.append([Button.inline(t("btn_select_all", uid), f"op:eppis:{panel_name}".encode())])
+    btns.append([Button.inline(t("btn_confirm_add", uid), f"op:eppic:{panel_name}".encode())])
+    btns.append([Button.inline(t("btn_back", uid), b"op:eppi")])
+    await reply(event, t("op_edit_public_inbounds_title", uid, panel=panel_name), buttons=btns)
 
 
 # ── Text Input Handler ──────────────────────────────────────────────────────
@@ -580,6 +771,30 @@ def _toggle_perm_set(selected: set[str], perm: str) -> set[str]:
     return selected
 
 
+def _toggle_panel_set(selected: set[str], name: str) -> set[str]:
+    """Toggle a panel in a set, handling * expansion/collapse."""
+    all_names = set(panels)
+    if name == "*":
+        if "*" in selected:
+            selected.clear()
+        else:
+            selected.clear()
+            selected.add("*")
+    else:
+        if "*" in selected:
+            selected.clear()
+            selected.update(all_names)
+            selected.discard(name)
+        elif name in selected:
+            selected.discard(name)
+        else:
+            selected.add(name)
+            if all_names and selected >= all_names:
+                selected.clear()
+                selected.add("*")
+    return selected
+
+
 # ── Register ────────────────────────────────────────────────────────────────
 
 def register(bot):
@@ -621,7 +836,7 @@ def register(bot):
         db_admins = get_db_admins()
         if target_uid not in db_admins:
             return
-        current_perms, _ = db_admins[target_uid]
+        current_perms, _, _panels, _ib = db_admins[target_uid]
         new_perms = set(current_perms)
         if "*" in new_perms:
             new_perms = set(ALL_PERMS)
@@ -645,7 +860,7 @@ def register(bot):
         db_admins = get_db_admins()
         if target_uid not in db_admins:
             return
-        _, current_owner = db_admins[target_uid]
+        _, current_owner, _panels, _ib = db_admins[target_uid]
         if current_owner and _count_owners() <= 1:
             await event.answer(t("op_cannot_demote_last_owner", uid), alert=True)
             return
@@ -681,6 +896,163 @@ def register(bot):
         await reply(event, t("op_admin_removed", uid, id=target_uid),
                     buttons=_back_btn(uid, b"op:admins"))
 
+    # ── Edit Admin Panels ───────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:ep:(\d+)$"))
+    @auth
+    @_require_owner
+    async def cb_edit_admin_panels(event):
+        uid = event.sender_id
+        target_uid = int(event.pattern_match.group(1))
+        if target_uid == owner_id:
+            return
+        db_admins = get_db_admins()
+        if target_uid not in db_admins:
+            return
+        _, _, current_panels, _ = db_admins[target_uid]
+        s = st(uid)
+        s["op_ep_panels"] = set(current_panels)
+        await _show_admin_panel_picker(event, uid, target_uid, s["op_ep_panels"])
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:epa:(\d+):(.+)$"))
+    @auth
+    @_require_owner
+    async def cb_toggle_admin_panel(event):
+        uid = event.sender_id
+        target_uid = int(event.pattern_match.group(1))
+        name = event.pattern_match.group(2).decode()
+        s = st(uid)
+        selected = s.get("op_ep_panels", {"*"})
+        _toggle_panel_set(selected, name)
+        s["op_ep_panels"] = selected
+        await _show_admin_panel_picker(event, uid, target_uid, selected)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:epac:(\d+)$"))
+    @auth
+    @_require_owner
+    async def cb_confirm_admin_panels(event):
+        uid = event.sender_id
+        target_uid = int(event.pattern_match.group(1))
+        s = st(uid)
+        selected = s.get("op_ep_panels", {"*"})
+        if not selected:
+            selected = {"*"}
+        update_db_admin_panels(target_uid, selected)
+        s.pop("op_ep_panels", None)
+        await _show_admin_detail(event, uid, target_uid)
+
+    # ── Edit Admin Inbounds ────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:ei:(\d+)$"))
+    @auth
+    @_require_owner
+    async def cb_edit_admin_inbounds(event):
+        uid = event.sender_id
+        target_uid = int(event.pattern_match.group(1))
+        if target_uid == owner_id:
+            return
+        clear(uid)
+        await _show_admin_inbound_panel_list(event, uid, target_uid)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eip:(\d+):([^:]+)$"))
+    @auth
+    @_require_owner
+    async def cb_edit_admin_inbound_panel(event):
+        uid = event.sender_id
+        target_uid = int(event.pattern_match.group(1))
+        panel_name = event.pattern_match.group(2).decode()
+        if target_uid == owner_id or panel_name not in panels:
+            return
+        db_admins = get_db_admins()
+        if target_uid not in db_admins:
+            return
+        _, _, _, admin_inbounds = db_admins[target_uid]
+        s = st(uid)
+        existing = admin_inbounds.get(panel_name)
+        if existing is None:
+            # Currently all — start with select-all mode
+            s["op_ei_all"] = True
+            s["op_ei_selected"] = set()
+        else:
+            s["op_ei_all"] = False
+            s["op_ei_selected"] = set(existing)
+        await _show_admin_inbound_picker(event, uid, target_uid, panel_name)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eipt:(\d+):([^:]+):(\d+)$"))
+    @auth
+    @_require_owner
+    async def cb_toggle_admin_inbound(event):
+        uid = event.sender_id
+        target_uid = int(event.pattern_match.group(1))
+        panel_name = event.pattern_match.group(2).decode()
+        iid = int(event.pattern_match.group(3))
+        s = st(uid)
+        if s.get("op_ei_all"):
+            # Expand to all IDs minus toggled one
+            inbound_list = s.get("op_ei_inbound_list", [])
+            s["op_ei_selected"] = {ib["id"] for ib in inbound_list} - {iid}
+            s["op_ei_all"] = False
+        else:
+            selected = s.get("op_ei_selected", set())
+            if iid in selected:
+                selected.discard(iid)
+            else:
+                selected.add(iid)
+            # Check if all are selected → collapse to select-all
+            inbound_list = s.get("op_ei_inbound_list", [])
+            if inbound_list and selected == {ib["id"] for ib in inbound_list}:
+                s["op_ei_all"] = True
+                s["op_ei_selected"] = set()
+            else:
+                s["op_ei_selected"] = selected
+        await _show_admin_inbound_picker(event, uid, target_uid, panel_name)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eips:(\d+):([^:]+)$"))
+    @auth
+    @_require_owner
+    async def cb_toggle_all_admin_inbounds(event):
+        uid = event.sender_id
+        target_uid = int(event.pattern_match.group(1))
+        panel_name = event.pattern_match.group(2).decode()
+        s = st(uid)
+        if s.get("op_ei_all"):
+            s["op_ei_all"] = False
+            s["op_ei_selected"] = set()
+        else:
+            s["op_ei_all"] = True
+            s["op_ei_selected"] = set()
+        await _show_admin_inbound_picker(event, uid, target_uid, panel_name)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eipc:(\d+):([^:]+)$"))
+    @auth
+    @_require_owner
+    async def cb_confirm_admin_inbounds(event):
+        uid = event.sender_id
+        target_uid = int(event.pattern_match.group(1))
+        panel_name = event.pattern_match.group(2).decode()
+        s = st(uid)
+        db_admins = get_db_admins()
+        if target_uid not in db_admins:
+            return
+        _, _, _, current_inbounds = db_admins[target_uid]
+        new_inbounds = dict(current_inbounds)
+        if s.get("op_ei_all"):
+            # All selected = no restriction for this panel
+            new_inbounds.pop(panel_name, None)
+        else:
+            selected = s.get("op_ei_selected", set())
+            if selected:
+                new_inbounds[panel_name] = selected
+            else:
+                # Empty selection = no restriction (remove entry)
+                new_inbounds.pop(panel_name, None)
+        update_db_admin_inbounds(target_uid, new_inbounds)
+        s.pop("op_ei_all", None)
+        s.pop("op_ei_selected", None)
+        s.pop("op_ei_inbound_list", None)
+        await event.answer(t("op_inbounds_saved", uid))
+        await _show_admin_inbound_panel_list(event, uid, target_uid)
+
     # ── Add Admin ───────────────────────────────────────────────────────
 
     @bot.on(events.CallbackQuery(data=b"op:aa"))
@@ -714,8 +1086,34 @@ def register(bot):
         target_uid = s.get("op_aa_target")
         if target_uid is None:
             return
-        selected = s.get("op_aa_perms", set())
-        add_db_admin(target_uid, selected, False, uid)
+        # Move to panel picker step
+        s["op_aa_panels"] = {"*"}
+        await _show_add_admin_panel_picker(event, uid)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:aapn:(.+)$"))
+    @auth
+    @_require_owner
+    async def cb_add_admin_toggle_panel(event):
+        uid = event.sender_id
+        s = st(uid)
+        name = event.pattern_match.group(1).decode()
+        selected = s.get("op_aa_panels", {"*"})
+        _toggle_panel_set(selected, name)
+        s["op_aa_panels"] = selected
+        await _show_add_admin_panel_picker(event, uid)
+
+    @bot.on(events.CallbackQuery(data=b"op:aapnc"))
+    @auth
+    @_require_owner
+    async def cb_confirm_add_admin_panels(event):
+        uid = event.sender_id
+        s = st(uid)
+        target_uid = s.get("op_aa_target")
+        if target_uid is None:
+            return
+        selected_perms = s.get("op_aa_perms", set())
+        selected_panels = s.get("op_aa_panels", {"*"})
+        add_db_admin(target_uid, selected_perms, False, uid, admin_panels=selected_panels)
         clear(uid)
         await reply(event, t("op_admin_added", uid, id=target_uid),
                     buttons=_back_btn(uid, b"op:admins"))
@@ -762,6 +1160,8 @@ def register(bot):
             except Exception:
                 pass
         remove_db_panel(name)
+        remove_panel_from_admins(name)
+        remove_panel_from_settings(name)
         await reply(event, t("op_panel_removed", uid, name=name),
                     buttons=_back_btn(uid, b"op:panels"))
 
@@ -896,6 +1296,8 @@ def register(bot):
         target = name
         if "name" in edits:
             rename_db_panel(name, new_name)
+            rename_panel_in_admins(name, new_name)
+            rename_panel_in_settings(name, new_name)
             target = new_name
 
         # 3. Update changed fields
@@ -985,6 +1387,146 @@ def register(bot):
         clear(uid)
         await reply(event, t("op_public_perms_saved", uid),
                     buttons=_back_btn(uid, b"op:set"))
+
+    # ── Public Panel Picker ─────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"op:eppp"))
+    @auth
+    @_require_owner
+    async def cb_edit_public_panels(event):
+        uid = event.sender_id
+        s = st(uid)
+        pp = get_setting("public_panels", "*")
+        current = set(pp.split(",")) if pp else {"*"}
+        current.discard("")
+        all_names = set(panels)
+        if all_names and current >= all_names:
+            current = {"*"}
+        s["op_ppp_panels"] = current
+        await _show_public_panel_picker(event, uid)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eppp:(.+)$"))
+    @auth
+    @_require_owner
+    async def cb_toggle_public_panel(event):
+        uid = event.sender_id
+        s = st(uid)
+        name = event.pattern_match.group(1).decode()
+        selected = s.get("op_ppp_panels", {"*"})
+        _toggle_panel_set(selected, name)
+        s["op_ppp_panels"] = selected
+        await _show_public_panel_picker(event, uid)
+
+    @bot.on(events.CallbackQuery(data=b"op:epppc"))
+    @auth
+    @_require_owner
+    async def cb_confirm_public_panels(event):
+        uid = event.sender_id
+        s = st(uid)
+        selected = s.get("op_ppp_panels", {"*"})
+        if not selected:
+            selected = {"*"}
+        if "*" in selected:
+            val = "*"
+        else:
+            val = ",".join(sorted(selected))
+        set_setting("public_panels", val)
+        clear(uid)
+        await reply(event, t("op_public_panels_saved", uid),
+                    buttons=_back_btn(uid, b"op:set"))
+
+    # ── Public Inbound Picker ──────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"op:eppi"))
+    @auth
+    @_require_owner
+    async def cb_edit_public_inbounds(event):
+        uid = event.sender_id
+        clear(uid)
+        await _show_public_inbound_panel_list(event, uid)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eppip:([^:]+)$"))
+    @auth
+    @_require_owner
+    async def cb_edit_public_inbound_panel(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        if panel_name not in panels:
+            return
+        pub_inbounds = _parse_inbounds_json(get_setting("public_inbounds", "{}"))
+        s = st(uid)
+        existing = pub_inbounds.get(panel_name)
+        if existing is None:
+            s["op_epi_all"] = True
+            s["op_epi_selected"] = set()
+        else:
+            s["op_epi_all"] = False
+            s["op_epi_selected"] = set(existing)
+        await _show_public_inbound_picker(event, uid, panel_name)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eppit:([^:]+):(\d+)$"))
+    @auth
+    @_require_owner
+    async def cb_toggle_public_inbound(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        s = st(uid)
+        if s.get("op_epi_all"):
+            inbound_list = s.get("op_epi_inbound_list", [])
+            s["op_epi_selected"] = {ib["id"] for ib in inbound_list} - {iid}
+            s["op_epi_all"] = False
+        else:
+            selected = s.get("op_epi_selected", set())
+            if iid in selected:
+                selected.discard(iid)
+            else:
+                selected.add(iid)
+            inbound_list = s.get("op_epi_inbound_list", [])
+            if inbound_list and selected == {ib["id"] for ib in inbound_list}:
+                s["op_epi_all"] = True
+                s["op_epi_selected"] = set()
+            else:
+                s["op_epi_selected"] = selected
+        await _show_public_inbound_picker(event, uid, panel_name)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eppis:([^:]+)$"))
+    @auth
+    @_require_owner
+    async def cb_toggle_all_public_inbounds(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        s = st(uid)
+        if s.get("op_epi_all"):
+            s["op_epi_all"] = False
+            s["op_epi_selected"] = set()
+        else:
+            s["op_epi_all"] = True
+            s["op_epi_selected"] = set()
+        await _show_public_inbound_picker(event, uid, panel_name)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:eppic:([^:]+)$"))
+    @auth
+    @_require_owner
+    async def cb_confirm_public_inbounds(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        s = st(uid)
+        pub_inbounds = _parse_inbounds_json(get_setting("public_inbounds", "{}"))
+        if s.get("op_epi_all"):
+            pub_inbounds.pop(panel_name, None)
+        else:
+            selected = s.get("op_epi_selected", set())
+            if selected:
+                pub_inbounds[panel_name] = selected
+            else:
+                pub_inbounds.pop(panel_name, None)
+        set_setting("public_inbounds", _serialize_inbounds(pub_inbounds))
+        s.pop("op_epi_all", None)
+        s.pop("op_epi_selected", None)
+        s.pop("op_epi_inbound_list", None)
+        await event.answer(t("op_public_inbounds_saved", uid))
+        await _show_public_inbound_panel_list(event, uid)
 
     @bot.on(events.CallbackQuery(data=b"op:efj"))
     @auth

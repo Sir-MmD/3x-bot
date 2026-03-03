@@ -2,7 +2,7 @@ import asyncio
 
 from telethon import events, Button
 
-from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot
+from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot, visible_panels, user_inbounds
 from helpers import format_bytes, format_expiry, make_qr, auth, reply, search_result_buttons
 from i18n import t
 from panel import build_client_link
@@ -13,11 +13,28 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
     s = st(uid)
 
     if panel_name:
-        # Search specific panel
+        # Search specific panel — verify access
+        vp = visible_panels(uid)
+        if panel_name not in vp:
+            await reply(
+                event,
+                t("not_found", uid),
+                buttons=[[Button.inline(t("btn_back", uid), b"m")]],
+            )
+            return
         p = get_panel(panel_name)
         client, inbound, traffic = await p.find_client_by_email(email)
         found_panel = panel_name
         if client is None:
+            await reply(
+                event,
+                t("not_found", uid),
+                buttons=[[Button.inline(t("btn_back", uid), b"m")]],
+            )
+            return
+        # Check inbound access
+        allowed_ib = user_inbounds(uid, panel_name)
+        if allowed_ib is not None and inbound["id"] not in allowed_ib:
             await reply(
                 event,
                 t("not_found", uid),
@@ -29,8 +46,9 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
         async def _search_one(pname, pc):
             c, ib, tr = await pc.find_client_by_email(email)
             return pname, c, ib, tr
+        vp = visible_panels(uid)
         results = await asyncio.gather(
-            *(_search_one(pn, pc) for pn, pc in panels.items()),
+            *(_search_one(pn, pc) for pn, pc in vp.items()),
             return_exceptions=True,
         )
         matches = [
@@ -39,6 +57,11 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
             if not isinstance(r, BaseException)
             for pn, c, ib, tr in [r]
             if c is not None
+        ]
+        # Filter out results on restricted inbounds
+        matches = [
+            (pn, c, ib, tr) for pn, c, ib, tr in matches
+            if user_inbounds(uid, pn) is None or ib["id"] in user_inbounds(uid, pn)
         ]
 
         if not matches:
