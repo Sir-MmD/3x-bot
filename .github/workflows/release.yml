@@ -28,9 +28,8 @@ jobs:
         run: |
           pip install "setuptools<82"
           pip install -r requirements.txt
-          pip install scons
-          echo 'setuptools<82' > /tmp/pip-constraints.txt
-          PIP_CONSTRAINT=/tmp/pip-constraints.txt pip install pyinstaller staticx patchelf==0.14.5.0
+          pip install scons pyinstaller patchelf==0.14.5.0
+          pip install --no-build-isolation staticx
 
       - name: Strip RUNPATH from Python stdlib shared libraries
         run: |
