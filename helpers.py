@@ -12,6 +12,8 @@ from telethon.tl.functions.channels import GetParticipantRequest
 from telethon.errors import UserNotParticipantError
 
 from config import bot, panels, admins, force_join, user_perms, has_perm
+from db import get_user_lang
+from i18n import t, LANGUAGES
 
 
 # ── Formatting ───────────────────────────────────────────────────────────────
@@ -24,16 +26,16 @@ def format_bytes(b: int | float) -> str:
     return f"{b:.2f} PB"
 
 
-def format_expiry(ms: int) -> str:
+def format_expiry(ms: int, uid: int = 0) -> str:
     if ms == 0:
-        return "Unlimited"
+        return t("unlimited", uid) if uid else "Unlimited"
     now_ms = int(time.time() * 1000)
     if ms < 0:
         dur = abs(ms)
     else:
         dur = ms - now_ms
     if dur <= 0:
-        return "Expired"
+        return t("expired", uid) if uid else "Expired"
     days = dur // 86_400_000
     hours = (dur % 86_400_000) // 3_600_000
     parts = []
@@ -41,12 +43,13 @@ def format_expiry(ms: int) -> str:
         parts.append(f"{days}d")
     if hours:
         parts.append(f"{hours}h")
-    text = " ".join(parts) or "< 1h"
+    text = " ".join(parts) or (t("less_than_1h", uid) if uid else "< 1h")
     if ms > 0:
         exp_date = time.strftime("%Y-%m-%d", time.gmtime(ms / 1000))
         text += f" ({exp_date})"
     else:
-        text += " (after first use)"
+        after = t("after_first_use", uid) if uid else "after first use"
+        text += f" ({after})"
     return text
 
 
@@ -94,7 +97,7 @@ _fj_cache: dict[tuple[int, str], float] = {}  # (uid, channel) → expiry timest
 _FJ_TTL = 300  # 5 minutes
 
 
-async def _check_force_join(event, uid: int) -> bool:
+async def _check_force_join(event, uid: int, silent: bool = False) -> bool:
     if not force_join:
         return True
     if uid in admins:
@@ -113,11 +116,23 @@ async def _check_force_join(event, uid: int) -> bool:
         except Exception:
             missing.append(ch)
     if missing:
-        btns = [[Button.url(f"Join {ch}", f"https://t.me/{ch.lstrip('@')}")] for ch in missing]
-        btns.append([Button.inline("✅ I've Joined", b"fj")])
-        await reply(event, "⚠️ Please join these channels first:", buttons=btns)
+        if not silent:
+            btns = [[Button.url(t("btn_join_channel", uid, channel=ch), f"https://t.me/{ch.lstrip('@')}")] for ch in missing]
+            btns.append([Button.inline(t("btn_ive_joined", uid), b"fj")])
+            await reply(event, t("force_join_msg", uid), buttons=btns)
         return False
     return True
+
+
+# ── Language picker ──────────────────────────────────────────────────────────
+
+def _lang_picker_buttons():
+    return [[Button.inline(label, f"lang:{code}".encode())] for code, label in LANGUAGES.items()]
+
+
+async def _show_lang_picker(event, uid: int):
+    text = t("lang_select", uid)
+    await reply(event, text, buttons=_lang_picker_buttons())
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -134,6 +149,9 @@ def auth(func_or_perm=None):
             uid = event.sender_id
             if not user_perms(uid):
                 return
+            if get_user_lang(uid) is None:
+                await _show_lang_picker(event, uid)
+                return
             if not await _check_force_join(event, uid):
                 return
             return await func(event)
@@ -145,6 +163,9 @@ def auth(func_or_perm=None):
         async def wrapper(event):
             uid = event.sender_id
             if not has_perm(uid, perm):
+                return
+            if get_user_lang(uid) is None:
+                await _show_lang_picker(event, uid)
                 return
             if not await _check_force_join(event, uid):
                 return
@@ -229,9 +250,12 @@ def build_client_dict(
 def main_menu_buttons(uid: int):
     btns = []
     if has_perm(uid, "search"):
-        btns.append([Button.inline("🔍 Search User", b"s")])
+        btns.append([Button.inline(t("btn_search", uid), b"s")])
+    perms = user_perms(uid)
+    if perms & {"create", "bulk"}:
         for name in panels:
-            btns.append([Button.inline(f"📋 Inbound List ({name})", f"il:{name}".encode())])
+            btns.append([Button.inline(t("btn_inbound_list", uid, name=name), f"il:{name}".encode())])
+    btns.append([Button.inline(t("btn_language", uid), b"cl")])
     return btns
 
 
@@ -241,25 +265,28 @@ def search_result_buttons(uid: int, enabled: bool):
     row1 = []
     if has_perm(uid, "toggle"):
         if enabled:
-            row1.append(Button.inline("🔴 Disable", b"dis"))
+            row1.append(Button.inline(t("btn_disable", uid), b"dis"))
         else:
-            row1.append(Button.inline("🟢 Enable", b"en"))
+            row1.append(Button.inline(t("btn_enable", uid), b"en"))
     if has_perm(uid, "remove"):
-        row1.append(Button.inline("🗑 Remove", b"rm"))
+        row1.append(Button.inline(t("btn_remove", uid), b"rm"))
     if row1:
         btns.append(row1)
     row2 = []
     if has_perm(uid, "modify"):
-        row2.append(Button.inline("📊 Traffic", b"mt"))
-        row2.append(Button.inline("⏳ Days", b"md"))
+        row2.append(Button.inline(t("btn_traffic", uid), b"mt"))
+        row2.append(Button.inline(t("btn_days", uid), b"md"))
     if row2:
         btns.append(row2)
     row3 = []
     if has_perm(uid, "pdf"):
-        row3.append(Button.inline("📄 PDF", b"pdf"))
-    row3.append(Button.inline("◀️ Back", b"m"))
+        row3.append(Button.inline(t("btn_pdf", uid), b"pdf"))
+    row3.append(Button.inline(t("btn_back", uid), b"m"))
     btns.append(row3)
     return btns
 
 
-MAIN_TEXT = "🏠 **Main Menu**\nType an email to search, or pick an option:"
+def main_menu_text(uid: int) -> str:
+    if has_perm(uid, "search"):
+        return t("main_menu", uid)
+    return t("main_menu_no_search", uid)

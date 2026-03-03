@@ -15,6 +15,7 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Per-admin permissions** — grant each admin specific operation permissions
 - **Public mode** — optionally open the bot to everyone with configurable default permissions
 - **Force join** — require users to join specific channels before using the bot
+- **Multi-language** — English, Persian (فارسی), Russian (Русский) with per-user language selection; PDFs render in the user's chosen language with RTL support for Persian
 
 ## Quick Install
 
@@ -103,16 +104,32 @@ Each admin gets a list of permissions. Use `*` to grant all permissions.
 
 Admins always bypass force-join checks. In public mode, non-admin users get `public_permissions` and must pass force-join (if configured).
 
+## Language Support
+
+The bot supports **English**, **Persian (فارسی)**, and **Russian (Русский)**. Each user picks their language on first interaction, and the preference is stored in a local SQLite database (`users.db`).
+
+- Language picker is shown before the force-join check on first use
+- Users can change their language anytime via the **🌐 Language** button in the main menu
+- All bot messages, button labels, and PDF labels are translated
+- Persian PDFs use RTL text shaping (via `uharfbuzz`) and the Vazirmatn font
+- Russian PDFs use the NotoSans font for Cyrillic support
+
+To add a new language, create `translations/<code>.toml` with all the same keys as `en.toml`, and add the language to `LANGUAGES` in `i18n.py`.
+
 ## Project Structure
 
 ```
 bot.py              Entry point — registers handlers and runs the bot
 config.py           Config loading, bot instance, panels, state management
+db.py               SQLite user settings (language preference)
+i18n.py             Translation loader and t() lookup function
 helpers.py          Formatting, QR, auth, reply, client dict builder
 panel.py            3x-ui API client and proxy link generation
-pdf_export.py       PDF generation with QR codes
+pdf_export.py       PDF generation with QR codes and RTL support
+translations/       TOML translation files (en, fa, ru)
+fonts/              Unicode TTF fonts for PDF rendering
 handlers/
-├── menu.py         /start, back-to-main
+├── menu.py         /start, back-to-main, language picker
 ├── search.py       Search, enable/disable, remove, PDF export
 ├── modify.py       Modify traffic & duration
 ├── create.py       Single & bulk account creation
