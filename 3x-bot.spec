@@ -17,6 +17,7 @@ a = Analysis(
         'handlers.bulk_ops',
         'handlers.owner',
         'handlers.router',
+        'PIL',
     ],
     hookspath=[],
     hooksconfig={},
