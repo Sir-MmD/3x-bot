@@ -1,16 +1,38 @@
 import json
+import math
 import time
 
 from telethon import events, Button
 
-from config import get_panel, clear, has_perm
-from helpers import auth, reply
+from config import get_panel, clear, has_perm, user_perms
+from helpers import auth, reply, format_client_line
 from i18n import t
+
+_PAGE_SIZE = 50
 
 
 def register(bot):
+    # ── Panel sub-menu ──────────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(pattern=rb"^pm:(.+)$"))
+    @auth
+    async def cb_panel_menu(event):
+        uid = event.sender_id
+        clear(uid)
+        panel_name = event.pattern_match.group(1).decode()
+        perms = user_perms(uid)
+        btns = []
+        if perms & {"create", "bulk"}:
+            btns.append([Button.inline(t("btn_inbound_list_short", uid), f"il:{panel_name}".encode())])
+        if has_perm(uid, "bulk"):
+            btns.append([Button.inline(t("btn_bulk_operation", uid), f"bo:{panel_name}".encode())])
+        btns.append([Button.inline(t("btn_back", uid), b"m")])
+        await reply(event, t("panel_menu_title", uid, panel=panel_name), buttons=btns)
+
+    # ── Inbound list ────────────────────────────────────────────────────
+
     @bot.on(events.CallbackQuery(pattern=rb"^il:(.+)$"))
-    @auth("search")
+    @auth
     async def cb_inbound_list(event):
         uid = event.sender_id
         clear(uid)
@@ -39,17 +61,12 @@ def register(bot):
             total = len(clients)
             label = f"{icon} {ib['remark']} | {ib['port']} [{active}/{total}]"
             btns.append([Button.inline(label, f"ib:{panel_name}:{ib['id']}".encode())])
-        if has_perm(uid, "bulk"):
-            btns.append([Button.inline(t("btn_bulk_operation", uid), f"bo:{panel_name}".encode())])
-        btns.append([Button.inline(t("btn_back", uid), b"m")])
+        btns.append([Button.inline(t("btn_back", uid), f"pm:{panel_name}".encode())])
         await reply(event, t("inbound_list_title", uid, panel=panel_name), buttons=btns)
 
-    @bot.on(events.CallbackQuery(pattern=rb"^ib:(.+):(\d+)$"))
-    @auth("search")
-    async def cb_inbound_detail(event):
-        uid = event.sender_id
-        panel_name = event.pattern_match.group(1).decode()
-        iid = int(event.pattern_match.group(2))
+    # ── Client list ─────────────────────────────────────────────────────
+
+    async def _show_client_list(event, uid, panel_name, iid, page=1):
         p = get_panel(panel_name)
         inbounds = await p.list_inbounds()
         inbound = next((ib for ib in inbounds if ib["id"] == iid), None)
@@ -62,22 +79,138 @@ def register(bot):
 
         settings = json.loads(inbound.get("settings", "{}"))
         clients = settings.get("clients", [])
-        enabled_text = t("status_enabled", uid) if inbound.get("enable") else t("status_disabled", uid)
+        stats = {cs["email"]: cs for cs in inbound.get("clientStats") or []}
 
-        lines = [
-            f"\U0001f310 **{inbound['remark']}**",
-            t("sr_panel", uid, panel=panel_name),
-            t("ib_protocol", uid, protocol=inbound["protocol"]),
-            t("ib_port", uid, port=inbound["port"]),
-            enabled_text,
-            t("ib_clients", uid, count=len(clients)),
-        ]
+        total = len(clients)
+        pages = max(1, math.ceil(total / _PAGE_SIZE))
+        page = max(1, min(page, pages))
+        start = (page - 1) * _PAGE_SIZE
+        page_clients = clients[start:start + _PAGE_SIZE]
+
+        lines = [t("client_list_title", uid,
+                    remark=inbound["remark"], panel=panel_name,
+                    count=total, page=page, pages=pages), ""]
+        for c in page_clients:
+            tr = stats.get(c.get("email", ""))
+            lines.append(format_client_line(c, tr, uid))
+
         text = "\n".join(lines)
         btns = []
+
+        # Pagination
+        if pages > 1:
+            nav = []
+            if page > 1:
+                nav.append(Button.inline("\u25c0\ufe0f", f"ibp:{panel_name}:{iid}:{page - 1}".encode()))
+            nav.append(Button.inline(f"{page}/{pages}", b"noop"))
+            if page < pages:
+                nav.append(Button.inline("\u25b6\ufe0f", f"ibp:{panel_name}:{iid}:{page + 1}".encode()))
+            btns.append(nav)
+
+        # Action buttons
         if has_perm(uid, "create"):
             btns.append([
-                Button.inline(t("btn_create_account", uid), f"ca:{panel_name}:{iid}".encode()),
-                Button.inline(t("btn_bulk_create", uid), f"bk:{panel_name}:{iid}".encode()),
+                Button.inline(t("btn_add_client", uid), f"ca:{panel_name}:{iid}".encode()),
+                Button.inline(t("btn_add_bulk", uid), f"bk:{panel_name}:{iid}".encode()),
+            ])
+        if has_perm(uid, "bulk"):
+            btns.append([
+                Button.inline(t("btn_reset_traffic", uid), f"ibrt:{panel_name}:{iid}".encode()),
+                Button.inline(t("btn_delete_depleted", uid), f"ibdd:{panel_name}:{iid}".encode()),
             ])
         btns.append([Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())])
         await reply(event, text, buttons=btns)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^ib:(.+):(\d+)$"))
+    @auth
+    async def cb_client_list(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        await _show_client_list(event, uid, panel_name, iid)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^ibp:(.+):(\d+):(\d+)$"))
+    @auth
+    async def cb_client_list_page(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        page = int(event.pattern_match.group(3))
+        await _show_client_list(event, uid, panel_name, iid, page)
+
+    # ── Reset all traffic ───────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(pattern=rb"^ibrt:(.+):(\d+)$"))
+    @auth("bulk")
+    async def cb_reset_all_traffic(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        await reply(
+            event,
+            t("confirm_reset_all_traffic", uid),
+            buttons=[
+                [Button.inline(t("btn_yes_reset", uid), f"ibrtc:{panel_name}:{iid}".encode())],
+                [Button.inline(t("btn_cancel", uid), f"ib:{panel_name}:{iid}".encode())],
+            ],
+        )
+
+    @bot.on(events.CallbackQuery(pattern=rb"^ibrtc:(.+):(\d+)$"))
+    @auth("bulk")
+    async def cb_confirm_reset_all_traffic(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        p = get_panel(panel_name)
+        try:
+            await p.reset_all_client_traffics(iid)
+        except Exception as e:
+            from helpers import format_bytes  # noqa: avoid circular at top
+            await reply(
+                event, t("error_msg", uid, error=e),
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
+            )
+            return
+        await event.answer(t("reset_all_traffic_success", uid))
+        await _show_client_list(event, uid, panel_name, iid)
+
+    # ── Delete depleted ─────────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(pattern=rb"^ibdd:(.+):(\d+)$"))
+    @auth("bulk")
+    async def cb_delete_depleted(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        await reply(
+            event,
+            t("confirm_delete_depleted", uid),
+            buttons=[
+                [Button.inline(t("btn_yes_delete_depleted", uid), f"ibddc:{panel_name}:{iid}".encode())],
+                [Button.inline(t("btn_cancel", uid), f"ib:{panel_name}:{iid}".encode())],
+            ],
+        )
+
+    @bot.on(events.CallbackQuery(pattern=rb"^ibddc:(.+):(\d+)$"))
+    @auth("bulk")
+    async def cb_confirm_delete_depleted(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        p = get_panel(panel_name)
+        try:
+            await p.delete_depleted_clients(iid)
+        except Exception as e:
+            await reply(
+                event, t("error_msg", uid, error=e),
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
+            )
+            return
+        await event.answer(t("delete_depleted_success", uid))
+        await _show_client_list(event, uid, panel_name, iid)
+
+    # ── Noop (page indicator button) ────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"noop"))
+    async def cb_noop(event):
+        await event.answer()

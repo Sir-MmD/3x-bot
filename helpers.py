@@ -11,8 +11,8 @@ from telethon import events, Button
 from telethon.tl.functions.channels import GetParticipantRequest
 from telethon.errors import UserNotParticipantError
 
-from config import bot, panels, admins, force_join, user_perms, has_perm
-from db import get_user_lang
+from config import bot, panels, user_perms, has_perm, is_owner, get_force_join
+from db import get_user_lang, get_db_admins
 from i18n import t, LANGUAGES
 
 
@@ -98,13 +98,14 @@ _FJ_TTL = 300  # 5 minutes
 
 
 async def _check_force_join(event, uid: int, silent: bool = False) -> bool:
-    if not force_join:
+    channels = get_force_join()
+    if not channels:
         return True
-    if uid in admins:
+    if is_owner(uid) or uid in get_db_admins():
         return True
     now = time.time()
     missing = []
-    for ch in force_join:
+    for ch in channels:
         key = (uid, ch)
         if _fj_cache.get(key, 0) > now:
             continue
@@ -254,7 +255,9 @@ def main_menu_buttons(uid: int):
     perms = user_perms(uid)
     if perms & {"create", "bulk"}:
         for name in panels:
-            btns.append([Button.inline(t("btn_inbound_list", uid, name=name), f"il:{name}".encode())])
+            btns.append([Button.inline(t("btn_panel", uid, name=name), f"pm:{name}".encode())])
+    if "owner" in perms:
+        btns.append([Button.inline(t("btn_owner_panel", uid), b"op")])
     btns.append([Button.inline(t("btn_language", uid), b"cl")])
     return btns
 
@@ -284,6 +287,41 @@ def search_result_buttons(uid: int, enabled: bool):
     row3.append(Button.inline(t("btn_back", uid), b"m"))
     btns.append(row3)
     return btns
+
+
+def format_client_line(client: dict, traffic: dict | None, uid: int) -> str:
+    """Format one client as a text line for the client list."""
+    email = client.get("email", "?")
+    enabled = client.get("enable", True)
+    icon = "\u2705" if enabled else "\U0001f534"
+
+    # Traffic
+    limit = client.get("totalGB", 0)
+    if limit > 0:
+        used = 0
+        if traffic:
+            used = traffic.get("up", 0) + traffic.get("down", 0)
+        traffic_str = f"{format_bytes(used)}/{format_bytes(limit)}"
+    else:
+        traffic_str = "\u221e"
+
+    # Duration
+    exp = client.get("expiryTime", 0)
+    if exp == 0:
+        dur_str = "\u221e"
+    else:
+        now_ms = int(time.time() * 1000)
+        if exp < 0:
+            dur = abs(exp)
+        else:
+            dur = exp - now_ms
+        if dur <= 0:
+            dur_str = t("expired", uid)
+        else:
+            days = dur // 86_400_000
+            dur_str = f"{days}d"
+
+    return f"`{email}` {icon} | {traffic_str} | {dur_str}"
 
 
 def main_menu_text(uid: int) -> str:

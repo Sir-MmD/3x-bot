@@ -8,7 +8,10 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Search** — find clients by email across all panels (shows panel picker if found on multiple)
 - **Create accounts** — single or bulk (up to 100), with flexible naming schemes
 - **Manage clients** — enable/disable, modify traffic & duration, reset usage, remove
-- **Bulk operations** — add/subtract days or traffic across all accounts in a panel, filtered by enabled/disabled/all
+- **Panel sub-menu** — click a panel to access its inbound list and bulk operations
+- **Client list** — click an inbound to see a paginated text list of all clients with email, status, traffic usage, and remaining duration
+- **Per-inbound actions** — add client, bulk add, reset all traffic, and delete depleted clients directly from the client list
+- **Bulk operations** — add/subtract days or traffic with multi-select inbound filter, then filtered by enabled/disabled/all
 - **PDF export** — account details with QR codes and subscription links
 - **Proxy support** — HTTP/SOCKS proxy for both Telegram and panel connections
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
@@ -93,12 +96,12 @@ Each admin gets a list of permissions. Use `*` to grant all permissions.
 
 | Permission | Covers |
 |-----------|--------|
-| `search` | Search user, view details, view inbound list/detail |
-| `create` | Create account (single & bulk) |
+| `search` | Search user, view details |
+| `create` | Create account (single & bulk), view panel/inbound/client list |
 | `modify` | Modify traffic & duration |
 | `toggle` | Enable/disable accounts |
 | `remove` | Remove accounts |
-| `bulk` | Bulk operations (add/subtract days/traffic) |
+| `bulk` | Bulk operations (add/subtract days/traffic), reset all traffic, delete depleted, view panel/inbound/client list |
 | `pdf` | PDF export |
 | `*` | All of the above |
 
@@ -133,8 +136,9 @@ handlers/
 ├── search.py       Search, enable/disable, remove, PDF export
 ├── modify.py       Modify traffic & duration
 ├── create.py       Single & bulk account creation
-├── inbounds.py     Inbound list & detail
-├── bulk_ops.py     Bulk operations on clients
+├── inbounds.py     Panel sub-menu, inbound list, client list, reset/delete actions
+├── bulk_ops.py     Bulk operations with inbound multi-select
+├── owner.py        Owner panel: manage admins, panels, settings
 └── router.py       Text input dispatcher (routes by state prefix)
 ```
 

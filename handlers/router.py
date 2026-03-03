@@ -7,6 +7,7 @@ from handlers.search import show_search_result
 from handlers.modify import handle_modify_traffic_input, handle_modify_days_input
 from handlers.create import handle_create_input, handle_bulk_create_input
 from handlers.bulk_ops import handle_bulk_op_input
+from handlers.owner import handle_owner_input
 
 
 def register(bot):
@@ -16,6 +17,11 @@ def register(bot):
         uid = event.sender_id
         s = st(uid)
         state = s.get("state")
+
+        # ── Owner panel states ────────────────────────────────────────────
+        if state and state.startswith("op_"):
+            if await handle_owner_input(event):
+                return
 
         # ── Create flow states ───────────────────────────────────────────
         if state and state.startswith("cr_"):

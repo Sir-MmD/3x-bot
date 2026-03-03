@@ -187,7 +187,7 @@ async def handle_bulk_op_input(event):
                 t("start_after_use_prompt", uid),
                 buttons=[
                     [Button.inline(t("btn_yes", uid), b"bosa:y"), Button.inline(t("btn_no", uid), b"bosa:n")],
-                    [Button.inline(t("btn_back", uid), f"bo:{s['bo_pid']}".encode())],
+                    [Button.inline(t("btn_back", uid), f"boa:{s['bo_action']}".encode())],
                 ],
             )
         else:
@@ -208,14 +208,106 @@ async def handle_bulk_op_input(event):
     return True
 
 
+def _inbound_selector_buttons(uid, panel_name, inbounds, selected):
+    """Build buttons for the inbound multi-select screen."""
+    btns = []
+    for ib in inbounds:
+        iid = ib["id"]
+        icon = "\u2705" if iid in selected else "\u2b1c"
+        label = f"{icon} {ib['remark']}"
+        btns.append([Button.inline(label, f"boi:{panel_name}:{iid}".encode())])
+    btns.append([
+        Button.inline(t("btn_select_all", uid), f"boia:{panel_name}".encode()),
+        Button.inline(t("btn_deselect_all", uid), f"boid:{panel_name}".encode()),
+    ])
+    btns.append([Button.inline(t("btn_continue", uid), f"boc:{panel_name}".encode())])
+    btns.append([Button.inline(t("btn_back", uid), f"pm:{panel_name}".encode())])
+    return btns
+
+
 def register(bot):
     @bot.on(events.CallbackQuery(pattern=rb"^bo:(.+)$"))
     @auth("bulk")
     async def cb_bulk_op_start(event):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
+        p = get_panel(panel_name)
+        inbounds = await p.list_inbounds()
         s = st(uid)
         s["bo_pid"] = panel_name
+        s["bo_inbounds"] = inbounds
+        selected = set()
+        s["bo_selected"] = selected
+        btns = _inbound_selector_buttons(uid, panel_name, inbounds, selected)
+        await reply(
+            event,
+            t("bo_select_inbounds", uid, selected=0, total=len(inbounds)),
+            buttons=btns,
+        )
+
+    @bot.on(events.CallbackQuery(pattern=rb"^boi:(.+):(\d+)$"))
+    @auth("bulk")
+    async def cb_bulk_toggle_inbound(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        s = st(uid)
+        selected = s.get("bo_selected", set())
+        if iid in selected:
+            selected.discard(iid)
+        else:
+            selected.add(iid)
+        s["bo_selected"] = selected
+        inbounds = s.get("bo_inbounds", [])
+        btns = _inbound_selector_buttons(uid, panel_name, inbounds, selected)
+        await reply(
+            event,
+            t("bo_select_inbounds", uid, selected=len(selected), total=len(inbounds)),
+            buttons=btns,
+        )
+
+    @bot.on(events.CallbackQuery(pattern=rb"^boia:(.+)$"))
+    @auth("bulk")
+    async def cb_bulk_select_all(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        s = st(uid)
+        inbounds = s.get("bo_inbounds", [])
+        selected = {ib["id"] for ib in inbounds}
+        s["bo_selected"] = selected
+        btns = _inbound_selector_buttons(uid, panel_name, inbounds, selected)
+        await reply(
+            event,
+            t("bo_select_inbounds", uid, selected=len(selected), total=len(inbounds)),
+            buttons=btns,
+        )
+
+    @bot.on(events.CallbackQuery(pattern=rb"^boid:(.+)$"))
+    @auth("bulk")
+    async def cb_bulk_deselect_all(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        s = st(uid)
+        inbounds = s.get("bo_inbounds", [])
+        selected = set()
+        s["bo_selected"] = selected
+        btns = _inbound_selector_buttons(uid, panel_name, inbounds, selected)
+        await reply(
+            event,
+            t("bo_select_inbounds", uid, selected=0, total=len(inbounds)),
+            buttons=btns,
+        )
+
+    @bot.on(events.CallbackQuery(pattern=rb"^boc:(.+)$"))
+    @auth("bulk")
+    async def cb_bulk_continue(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        s = st(uid)
+        selected = s.get("bo_selected", set())
+        if not selected:
+            await event.answer(t("bo_no_inbound_selected", uid), alert=True)
+            return
         await reply(
             event,
             t("bo_filter_title", uid),
@@ -223,7 +315,7 @@ def register(bot):
                 [Button.inline(t("btn_only_enabled", uid), b"bof:en")],
                 [Button.inline(t("btn_only_disabled", uid), b"bof:dis")],
                 [Button.inline(t("btn_all_accounts", uid), b"bof:all")],
-                [Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())],
+                [Button.inline(t("btn_back", uid), f"bo:{panel_name}".encode())],
             ],
         )
 
@@ -236,10 +328,13 @@ def register(bot):
         s["bo_filter"] = filt
         panel_name = s["bo_pid"]
         p = get_panel(panel_name)
+        selected = s.get("bo_selected", set())
 
         inbounds = await p.list_inbounds()
         collected = []
         for ib in inbounds:
+            if ib["id"] not in selected:
+                continue
             protocol = ib["protocol"]
             settings = json.loads(ib.get("settings", "{}"))
             for client in settings.get("clients", []):
@@ -252,14 +347,19 @@ def register(bot):
                 collected.append((client, ib["id"], client_id, protocol))
 
         s["bo_clients"] = collected
+        await _show_filter_result(event, uid, filt, len(collected))
+
+    async def _show_filter_result(event, uid, filt, count):
+        s = st(uid)
+        panel_name = s["bo_pid"]
         filter_key = {"en": "filter_enabled", "dis": "filter_disabled", "all": "filter_all"}[filt]
         filter_label = t(filter_key, uid)
         await reply(
             event,
-            t("bo_filter_result", uid, filter=filter_label, count=len(collected)),
+            t("bo_filter_result", uid, filter=filter_label, count=count),
             buttons=[
                 [Button.inline(t("btn_days", uid), b"bot:d"), Button.inline(t("btn_traffic", uid), b"bot:t")],
-                [Button.inline(t("btn_back", uid), f"bo:{panel_name}".encode())],
+                [Button.inline(t("btn_back", uid), f"boc:{panel_name}".encode())],
             ],
         )
 
@@ -271,12 +371,13 @@ def register(bot):
         s = st(uid)
         s["bo_op"] = op
         label = t("op_days", uid) if op == "d" else t("op_traffic", uid)
+        filt = s.get("bo_filter", "all")
         await reply(
             event,
             t("bo_type_title", uid, type=label),
             buttons=[
                 [Button.inline(t("btn_add", uid), b"boa:add"), Button.inline(t("btn_subtract", uid), b"boa:sub")],
-                [Button.inline(t("btn_back", uid), f"bo:{s['bo_pid']}".encode())],
+                [Button.inline(t("btn_back", uid), f"bof:{filt}".encode())],
             ],
         )
 
@@ -298,7 +399,7 @@ def register(bot):
         await reply(
             event,
             prompt,
-            buttons=[[Button.inline(t("btn_back", uid), f"bo:{s['bo_pid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"bot:{op}".encode())]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bosa:([yn])$"))
