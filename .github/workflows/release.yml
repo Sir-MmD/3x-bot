@@ -30,6 +30,14 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller staticx patchelf==0.14.5.0
 
+      - name: Strip RUNPATH from Python stdlib shared libraries
+        run: |
+          PYTHON_LIB=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          find "$PYTHON_LIB" -name "*.so*" -exec sh -c '
+            rpath=$(patchelf --print-rpath "$1" 2>/dev/null)
+            [ -n "$rpath" ] && patchelf --remove-rpath "$1"
+          ' _ {} \; 2>/dev/null || true
+
       - name: Build with PyInstaller
         run: pyinstaller 3x-bot.spec --noconfirm
 
