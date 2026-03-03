@@ -1,8 +1,12 @@
+import asyncio
 import json
+import time
 from base64 import b64encode
 from urllib.parse import quote
 
 import httpx
+
+_CACHE_TTL = 30  # seconds
 
 
 class PanelClient:
@@ -13,11 +17,14 @@ class PanelClient:
         self.name = name
         self._client = httpx.AsyncClient(verify=False, timeout=15, proxy=proxy or None)
         self._logged_in = False
+        self._login_lock = asyncio.Lock()
+        self._inbounds_cache: list[dict] | None = None
+        self._inbounds_ts: float = 0
 
     async def _request(self, method: str, path: str, **kwargs):
         """Make a request with auto-login and re-login on 404 / transport error."""
         if not self._logged_in:
-            await self.login()
+            await self._do_login()
         retry = False
         try:
             resp = await self._client.request(method, self.url + path, **kwargs)
@@ -26,9 +33,14 @@ class PanelClient:
         except httpx.TransportError:
             retry = True
         if retry:
-            await self.login()
+            await self._do_login()
             resp = await self._client.request(method, self.url + path, **kwargs)
         return resp.json()
+
+    async def _do_login(self):
+        """Login with a lock to prevent concurrent login storms."""
+        async with self._login_lock:
+            await self.login()
 
     async def login(self):
         resp = await self._client.post(
@@ -41,8 +53,18 @@ class PanelClient:
         self._logged_in = True
 
     async def list_inbounds(self) -> list[dict]:
+        now = time.monotonic()
+        if self._inbounds_cache is not None and now - self._inbounds_ts < _CACHE_TTL:
+            return self._inbounds_cache
         data = await self._request("GET", "/panel/api/inbounds/list")
-        return data.get("obj") or []
+        result = data.get("obj") or []
+        self._inbounds_cache = result
+        self._inbounds_ts = time.monotonic()
+        return result
+
+    def invalidate_cache(self):
+        """Clear cached inbounds so the next read fetches fresh data."""
+        self._inbounds_cache = None
 
     async def get_online_clients(self) -> list[str]:
         data = await self._request("POST", "/panel/api/inbounds/onlines")
@@ -56,6 +78,7 @@ class PanelClient:
         data = await self._request("POST", "/panel/api/inbounds/addClient", json=payload)
         if not data.get("success"):
             raise RuntimeError(f"addClient failed: {data.get('msg')}")
+        self.invalidate_cache()
         return data
 
     async def update_client(self, client_id: str, inbound_id: int, client_dict: dict):
@@ -68,6 +91,7 @@ class PanelClient:
         )
         if not data.get("success"):
             raise RuntimeError(f"updateClient failed: {data.get('msg')}")
+        self.invalidate_cache()
         return data
 
     async def reset_client_traffic(self, inbound_id: int, email: str):
@@ -76,6 +100,7 @@ class PanelClient:
         )
         if not data.get("success"):
             raise RuntimeError(f"resetClientTraffic failed: {data.get('msg')}")
+        self.invalidate_cache()
         return data
 
     async def delete_client(self, inbound_id: int, client_id: str):
@@ -84,6 +109,7 @@ class PanelClient:
         )
         if not data.get("success"):
             raise RuntimeError(f"delClient failed: {data.get('msg')}")
+        self.invalidate_cache()
         return data
 
     async def find_client_by_email(self, email: str):
