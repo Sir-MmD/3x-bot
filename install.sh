@@ -122,18 +122,87 @@ install_deps() {
 
     case "$PKG_MANAGER" in
         apt)
-            apt update && apt install -y python3 python3-pip python3-venv git
+            apt update && apt install -y python3 python3-pip python3-venv git wget
             ;;
         pacman)
-            pacman -Sy --noconfirm python python-pip git
+            pacman -Sy --noconfirm python python-pip git wget
             ;;
         dnf)
-            dnf install -y python3 python3-pip git
+            dnf install -y python3 python3-pip git wget
             ;;
         yum)
-            yum install -y python3 python3-pip git
+            yum install -y python3 python3-pip git wget
             ;;
     esac
+}
+
+# Telethon 1.42 is incompatible with Python 3.13+ (asyncio StreamReader
+# raises RuntimeError on concurrent reads).  We need exactly Python 3.12.
+PYTHON_BUILD_VERSION="3.12.11"
+
+ensure_python312() {
+    if command -v python3.12 &>/dev/null; then
+        info "Python 3.12 found: $(python3.12 --version)"
+        return
+    fi
+
+    info "Python 3.12 not found. Trying package manager..."
+
+    case "$PKG_MANAGER" in
+        apt)    apt install -y python3.12 python3.12-venv 2>/dev/null && return || true ;;
+        pacman) pacman -Sy --noconfirm python312 2>/dev/null && return || true ;;
+        dnf)    dnf install -y python3.12 2>/dev/null && return || true ;;
+        yum)    yum install -y python3.12 2>/dev/null && return || true ;;
+    esac
+
+    if command -v python3.12 &>/dev/null; then
+        info "Python 3.12 installed from packages."
+        return
+    fi
+
+    info "Package not available. Building Python ${PYTHON_BUILD_VERSION} from source..."
+
+    case "$PKG_MANAGER" in
+        apt)
+            apt install -y build-essential libssl-dev zlib1g-dev \
+                libncurses-dev libffi-dev libsqlite3-dev libreadline-dev libbz2-dev
+            ;;
+        pacman)
+            pacman -Sy --noconfirm base-devel openssl zlib ncurses libffi sqlite readline bzip2
+            ;;
+        dnf|yum)
+            $PKG_MANAGER install -y gcc make openssl-devel zlib-devel \
+                ncurses-devel libffi-devel sqlite-devel readline-devel bzip2-devel
+            ;;
+    esac
+
+    local build_dir="/tmp/python-build-$$"
+    mkdir -p "$build_dir"
+    cd "$build_dir"
+
+    info "Downloading Python ${PYTHON_BUILD_VERSION}..."
+    wget -q "https://www.python.org/ftp/python/${PYTHON_BUILD_VERSION}/Python-${PYTHON_BUILD_VERSION}.tgz"
+    tar xzf "Python-${PYTHON_BUILD_VERSION}.tgz"
+    cd "Python-${PYTHON_BUILD_VERSION}"
+
+    info "Configuring..."
+    ./configure --enable-optimizations --prefix=/usr/local >/dev/null 2>&1
+
+    info "Building (this may take a few minutes)..."
+    make -j"$(nproc)" >/dev/null 2>&1
+
+    info "Installing..."
+    make altinstall >/dev/null 2>&1
+
+    cd /
+    rm -rf "$build_dir"
+
+    if ! command -v python3.12 &>/dev/null; then
+        error "Failed to install Python 3.12."
+        exit 1
+    fi
+
+    info "Python 3.12 built and installed: $(python3.12 --version)"
 }
 
 write_service() {
@@ -246,12 +315,13 @@ do_install() {
 
     detect_distro
     install_deps
+    ensure_python312
 
     info "Cloning repository..."
     git clone "$REPO_URL" "$INSTALL_DIR"
 
     info "Creating virtual environment..."
-    python3 -m venv "${INSTALL_DIR}/venv"
+    python3.12 -m venv "${INSTALL_DIR}/venv"
 
     info "Installing Python dependencies..."
     "${INSTALL_DIR}/venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
@@ -279,8 +349,20 @@ do_update() {
     info "Stopping ${SERVICE_NAME}..."
     systemctl stop "$SERVICE_NAME"
 
+    detect_distro
+    ensure_python312
+
     info "Pulling latest changes..."
     git -C "$INSTALL_DIR" pull
+
+    # Recreate venv if not using Python 3.12
+    local venv_ver
+    venv_ver=$("${INSTALL_DIR}/venv/bin/python" --version 2>/dev/null || echo "")
+    if [[ "$venv_ver" != *"3.12"* ]]; then
+        info "Recreating venv with Python 3.12..."
+        rm -rf "${INSTALL_DIR}/venv"
+        python3.12 -m venv "${INSTALL_DIR}/venv"
+    fi
 
     info "Updating Python dependencies..."
     "${INSTALL_DIR}/venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"

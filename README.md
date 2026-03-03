@@ -89,5 +89,7 @@ handlers/
 
 ## Requirements
 
-- Python 3.12+
+- **Python 3.12** (not 3.13+ — Telethon is incompatible with Python 3.13's asyncio changes)
 - A running [3x-ui](https://github.com/MHSanaei/3x-ui) panel with API access
+
+The install script automatically installs Python 3.12 (from package manager or builds from source).
