@@ -8,6 +8,7 @@ from helpers import (
     format_bytes, format_expiry, rand_email, generate_bulk_emails,
     make_qr, auth, reply, build_client_dict,
 )
+from i18n import t
 from panel import build_client_link
 from pdf_export import generate_account_pdf
 
@@ -23,8 +24,8 @@ async def _create_client(event, uid: int):
     inbound = next((ib for ib in inbounds if ib["id"] == iid), None)
     if not inbound:
         await reply(
-            event, "❌ Inbound not found.",
-            buttons=[[Button.inline("◀️ Back", f"il:{panel_name}".encode())]],
+            event, t("inbound_not_found", uid),
+            buttons=[[Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())]],
         )
         return
 
@@ -55,8 +56,8 @@ async def _create_client(event, uid: int):
     except RuntimeError as e:
         await reply(
             event,
-            f"⚠️ Error creating account: {e}",
-            buttons=[[Button.inline("◀️ Back", f"ib:{panel_name}:{iid}".encode())]],
+            t("create_error", uid, error=e),
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
         )
         return
 
@@ -65,22 +66,23 @@ async def _create_client(event, uid: int):
     proxy_link = build_client_link(client_dict, inbound, addr)
     sub_id = client_dict.get("subId", "")
     sub_link = f"{sub_url}/{sub_id}" if sub_url and sub_id else None
-    traffic_str = format_bytes(total_bytes) if total_bytes > 0 else "Unlimited"
-    duration_str = format_expiry(expiry_time)
+    unlim = t("unlimited", uid)
+    traffic_str = format_bytes(total_bytes) if total_bytes > 0 else unlim
+    duration_str = format_expiry(expiry_time, uid)
 
     lines = [
-        "✅ **Account created!**",
+        t("create_success", uid),
         "",
-        f"👤 Email: `{email}`",
-        f"📦 Traffic: {traffic_str}",
-        f"⏳ Duration: {duration_str}",
-        f"🌐 Inbound: {inbound.get('remark', '?')}",
-        f"🖥 Panel: {panel_name}",
+        t("create_email_line", uid, email=email),
+        t("create_traffic_line", uid, traffic=traffic_str),
+        t("create_duration_line", uid, duration=duration_str),
+        t("create_inbound_line", uid, remark=inbound.get("remark", "?")),
+        t("create_panel_line", uid, panel=panel_name),
     ]
     if proxy_link:
         lines += ["", f"`{proxy_link}`"]
     text = "\n".join(lines)
-    btns = [[Button.inline("◀️ Back", b"m")]]
+    btns = [[Button.inline(t("btn_back", uid), b"m")]]
     clear(uid)
 
     if proxy_link:
@@ -98,9 +100,10 @@ async def _create_client(event, uid: int):
                 "sub_link": sub_link,
                 "panel": panel_name,
             }],
-            title=f"Account: {email}",
+            title=t("pdf_account_title", uid, email=email),
+            uid=uid,
         )
-        await bot.send_file(event.chat_id, pdf, caption="📄 Account PDF")
+        await bot.send_file(event.chat_id, pdf, caption=t("account_pdf", uid))
     else:
         await reply(event, text, buttons=btns)
 
@@ -116,8 +119,8 @@ async def _bulk_create_clients(event, uid: int):
     inbound = next((ib for ib in inbounds if ib["id"] == iid), None)
     if not inbound:
         await reply(
-            event, "❌ Inbound not found.",
-            buttons=[[Button.inline("◀️ Back", f"il:{panel_name}".encode())]],
+            event, t("inbound_not_found", uid),
+            buttons=[[Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())]],
         )
         return
 
@@ -141,15 +144,16 @@ async def _bulk_create_clients(event, uid: int):
     else:
         expiry_time = 0
 
-    traffic_str = format_bytes(total_bytes) if total_bytes > 0 else "Unlimited"
-    duration_str = format_expiry(expiry_time)
+    unlim = t("unlimited", uid)
+    traffic_str = format_bytes(total_bytes) if total_bytes > 0 else unlim
+    duration_str = format_expiry(expiry_time, uid)
 
     addr = server_addrs[panel_name]
     sub_url = sub_urls[panel_name]
 
     # Progress message
     progress_msg = await bot.send_message(
-        event.chat_id, f"⏳ Creating {len(emails)} accounts..."
+        event.chat_id, t("bulk_creating", uid, count=len(emails))
     )
 
     created = []
@@ -178,7 +182,7 @@ async def _bulk_create_clients(event, uid: int):
         if (i + 1) % 5 == 0:
             try:
                 await progress_msg.edit(
-                    f"⏳ Creating accounts... {i + 1}/{len(emails)}"
+                    t("bulk_creating_progress", uid, done=i + 1, total=len(emails))
                 )
             except Exception:
                 pass
@@ -193,37 +197,42 @@ async def _bulk_create_clients(event, uid: int):
 
     # Summary
     lines = [
-        f"📦 **Bulk Create Complete**",
+        t("bulk_complete", uid),
         "",
-        f"✅ Created: {len(created)}",
-        f"❌ Failed: {len(failed)}",
+        t("bulk_created", uid, count=len(created)),
+        t("bulk_failed", uid, count=len(failed)),
         "",
-        f"📦 Traffic: {traffic_str}",
-        f"⏳ Duration: {duration_str}",
-        f"🌐 Inbound: {remark}",
-        f"🖥 Panel: {panel_name}",
+        t("create_traffic_line", uid, traffic=traffic_str),
+        t("create_duration_line", uid, duration=duration_str),
+        t("create_inbound_line", uid, remark=remark),
+        t("create_panel_line", uid, panel=panel_name),
     ]
     if failed:
-        lines += ["", "**Errors (first 5):**"]
+        lines += ["", t("bulk_errors_header", uid)]
         for email, err in failed[:5]:
-            lines.append(f"  • `{email}`: {err}")
+            lines.append(f"  \u2022 `{email}`: {err}")
     text = "\n".join(lines)
     await bot.send_message(
-        event.chat_id, text, buttons=[[Button.inline("◀️ Back", b"m")]],
+        event.chat_id, text, buttons=[[Button.inline(t("btn_back", uid), b"m")]],
         parse_mode="md",
     )
 
     # Generate and send PDF for created accounts
     if created:
-        pdf = generate_account_pdf(created, f"Bulk Accounts - {panel_name} / {remark}")
-        await bot.send_file(event.chat_id, pdf, caption="📄 Bulk accounts PDF")
+        pdf = generate_account_pdf(
+            created,
+            f"Bulk Accounts - {panel_name} / {remark}",
+            uid=uid,
+        )
+        await bot.send_file(event.chat_id, pdf, caption=t("bulk_pdf", uid))
 
     clear(uid)
 
 
 async def handle_create_input(event):
     """Handle cr_email, cr_traffic, cr_duration text input. Returns True if handled."""
-    s = st(event.sender_id)
+    uid = event.sender_id
+    s = st(uid)
     state = s.get("state")
 
     if state == "cr_email":
@@ -232,8 +241,8 @@ async def handle_create_input(event):
         s["cr"]["email"] = email
         s["state"] = "cr_traffic"
         await event.respond(
-            "📦 Enter traffic in GB (0 = unlimited):",
-            buttons=[[Button.inline("◀️ Back", f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
+            t("enter_traffic_prompt", uid),
+            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
         )
         return True
 
@@ -243,13 +252,13 @@ async def handle_create_input(event):
             gb = float(event.text.strip())
         except ValueError:
             s["state"] = "cr_traffic"
-            await event.respond("⚠️ Invalid number. Enter traffic in GB (0 = unlimited):")
+            await event.respond(t("enter_traffic_invalid", uid))
             return True
         s["cr"]["traffic_gb"] = gb
         s["state"] = "cr_duration"
         await event.respond(
-            "⏳ Enter duration in days (0 = unlimited):",
-            buttons=[[Button.inline("◀️ Back", f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
+            t("enter_duration_prompt", uid),
+            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
         )
         return True
 
@@ -259,21 +268,21 @@ async def handle_create_input(event):
             days = int(event.text.strip())
         except ValueError:
             s["state"] = "cr_duration"
-            await event.respond("⚠️ Invalid number. Enter duration in days (0 = unlimited):")
+            await event.respond(t("enter_duration_invalid", uid))
             return True
         s["cr"]["duration_days"] = days
         if days > 0:
             s["state"] = "cr_sau"
             await event.respond(
-                "⏱ Start timer after first use?",
+                t("start_after_use_prompt", uid),
                 buttons=[
-                    [Button.inline("✅ Yes", b"sau:y"), Button.inline("❌ No", b"sau:n")],
-                    [Button.inline("◀️ Back", f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())],
+                    [Button.inline(t("btn_yes", uid), b"sau:y"), Button.inline(t("btn_no", uid), b"sau:n")],
+                    [Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())],
                 ],
             )
         else:
             s["cr"]["start_after_use"] = False
-            await _create_client(event, event.sender_id)
+            await _create_client(event, uid)
         return True
 
     return False
@@ -281,7 +290,8 @@ async def handle_create_input(event):
 
 async def handle_bulk_create_input(event):
     """Handle bk_* text input. Returns True if handled."""
-    s = st(event.sender_id)
+    uid = event.sender_id
+    s = st(uid)
     state = s.get("state")
 
     if state == "bk_count":
@@ -290,30 +300,30 @@ async def handle_bulk_create_input(event):
             count = int(event.text.strip())
         except ValueError:
             s["state"] = "bk_count"
-            await event.respond("⚠️ Invalid number. Enter a count (1-100):")
+            await event.respond(t("bulk_count_invalid", uid))
             return True
         if count < 1 or count > 100:
             s["state"] = "bk_count"
-            await event.respond("⚠️ Count must be 1-100. Try again:")
+            await event.respond(t("bulk_count_range", uid))
             return True
         s["bk"]["count"] = count
         await event.respond(
-            f"✅ Count: {count}\n\n🏷 Choose naming method:",
+            t("bulk_naming_title", uid, count=count),
             buttons=[
                 [
-                    Button.inline("🎲 Random", b"bkn:r"),
-                    Button.inline("Rand+Prefix", b"bkn:rp"),
-                    Button.inline("Prefix+Rand", b"bkn:pr"),
+                    Button.inline(t("btn_random", uid), b"bkn:r"),
+                    Button.inline(t("btn_rand_prefix", uid), b"bkn:rp"),
+                    Button.inline(t("btn_prefix_rand", uid), b"bkn:pr"),
                 ],
                 [
-                    Button.inline("Prefix+Num+Rand", b"bkn:pnr"),
-                    Button.inline("Prefix+Num+Rand+Post", b"bkn:pnrx"),
+                    Button.inline(t("btn_prefix_num_rand", uid), b"bkn:pnr"),
+                    Button.inline(t("btn_prefix_num_rand_post", uid), b"bkn:pnrx"),
                 ],
                 [
-                    Button.inline("Prefix+Num", b"bkn:pn"),
-                    Button.inline("Prefix+Num+Post", b"bkn:pnx"),
+                    Button.inline(t("btn_prefix_num", uid), b"bkn:pn"),
+                    Button.inline(t("btn_prefix_num_post", uid), b"bkn:pnx"),
                 ],
-                [Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())],
+                [Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())],
             ],
         )
         return True
@@ -323,7 +333,7 @@ async def handle_bulk_create_input(event):
         prefix = event.text.strip()
         if not prefix:
             s["state"] = "bk_prefix"
-            await event.respond("⚠️ Prefix cannot be empty. Try again:")
+            await event.respond(t("prefix_empty", uid))
             return True
         s["bk"]["prefix"] = prefix
         method = s["bk"]["method"]
@@ -331,17 +341,17 @@ async def handle_bulk_create_input(event):
         if method in ("pnrx", "pnx"):
             s["state"] = "bk_postfix"
             await event.respond(
-                f"🏷 Prefix: `{prefix}`\n\nEnter postfix:",
-                buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+                t("enter_postfix_prompt", uid, prefix=prefix),
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
             )
         else:
             s["bk"]["emails"] = generate_bulk_emails(method, s["bk"]["count"], prefix=prefix)
             s["state"] = "bk_traffic"
             sample = ", ".join(f"`{e}`" for e in s["bk"]["emails"][:3])
+            ellipsis = "..." if s["bk"]["count"] > 3 else ""
             await event.respond(
-                f"✅ Preview: {sample}{'...' if s['bk']['count'] > 3 else ''}\n\n"
-                "📦 Enter traffic in GB (0 = unlimited):",
-                buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+                t("bulk_preview", uid, sample=sample, ellipsis=ellipsis),
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
                 parse_mode="md",
             )
         return True
@@ -351,7 +361,7 @@ async def handle_bulk_create_input(event):
         postfix = event.text.strip()
         if not postfix:
             s["state"] = "bk_postfix"
-            await event.respond("⚠️ Postfix cannot be empty. Try again:")
+            await event.respond(t("postfix_empty", uid))
             return True
         s["bk"]["postfix"] = postfix
         method = s["bk"]["method"]
@@ -359,10 +369,10 @@ async def handle_bulk_create_input(event):
         s["bk"]["emails"] = generate_bulk_emails(method, s["bk"]["count"], prefix=prefix, postfix=postfix)
         s["state"] = "bk_traffic"
         sample = ", ".join(f"`{e}`" for e in s["bk"]["emails"][:3])
+        ellipsis = "..." if s["bk"]["count"] > 3 else ""
         await event.respond(
-            f"✅ Preview: {sample}{'...' if s['bk']['count'] > 3 else ''}\n\n"
-            "📦 Enter traffic in GB (0 = unlimited):",
-            buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            t("bulk_preview", uid, sample=sample, ellipsis=ellipsis),
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
             parse_mode="md",
         )
         return True
@@ -373,18 +383,17 @@ async def handle_bulk_create_input(event):
         emails = [e.strip() for e in raw.splitlines() if e.strip()]
         if not emails:
             s["state"] = "bk_emails"
-            await event.respond("⚠️ No emails found. Send one email per line:")
+            await event.respond(t("bulk_emails_empty", uid))
             return True
         if len(emails) > 100:
             s["state"] = "bk_emails"
-            await event.respond("⚠️ Max 100 accounts. Try again:")
+            await event.respond(t("bulk_emails_max", uid))
             return True
         s["bk"]["emails"] = emails
         s["state"] = "bk_traffic"
         await event.respond(
-            f"✅ {len(emails)} email(s) received.\n\n"
-            "📦 Enter traffic in GB (0 = unlimited):",
-            buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            t("bulk_emails_received", uid, count=len(emails)),
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
         )
         return True
 
@@ -394,13 +403,13 @@ async def handle_bulk_create_input(event):
             gb = float(event.text.strip())
         except ValueError:
             s["state"] = "bk_traffic"
-            await event.respond("⚠️ Invalid number. Enter traffic in GB (0 = unlimited):")
+            await event.respond(t("enter_traffic_invalid", uid))
             return True
         s["bk"]["traffic_gb"] = gb
         s["state"] = "bk_duration"
         await event.respond(
-            "⏳ Enter duration in days (0 = unlimited):",
-            buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            t("enter_duration_prompt", uid),
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
         )
         return True
 
@@ -410,21 +419,21 @@ async def handle_bulk_create_input(event):
             days = int(event.text.strip())
         except ValueError:
             s["state"] = "bk_duration"
-            await event.respond("⚠️ Invalid number. Enter duration in days (0 = unlimited):")
+            await event.respond(t("enter_duration_invalid", uid))
             return True
         s["bk"]["duration_days"] = days
         if days > 0:
             s["state"] = "bk_sau"
             await event.respond(
-                "⏱ Start timer after first use?",
+                t("start_after_use_prompt", uid),
                 buttons=[
-                    [Button.inline("✅ Yes", b"bksa:y"), Button.inline("❌ No", b"bksa:n")],
-                    [Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())],
+                    [Button.inline(t("btn_yes", uid), b"bksa:y"), Button.inline(t("btn_no", uid), b"bksa:n")],
+                    [Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())],
                 ],
             )
         else:
             s["bk"]["start_after_use"] = False
-            await _bulk_create_clients(event, event.sender_id)
+            await _bulk_create_clients(event, uid)
         return True
 
     return False
@@ -434,121 +443,129 @@ def register(bot):
     @bot.on(events.CallbackQuery(pattern=rb"^ca:(.+):(\d+)$"))
     @auth("create")
     async def cb_create_start(event):
+        uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
-        s = st(event.sender_id)
+        s = st(uid)
         s["state"] = "cr_email"
         s["cr_iid"] = iid
         s["cr_pid"] = panel_name
         s["cr"] = {}
         await reply(
             event,
-            "👤 Enter email for new account:",
+            t("create_email_prompt", uid),
             buttons=[
-                [Button.inline("🎲 Random Email", b"re")],
-                [Button.inline("◀️ Back", f"ib:{panel_name}:{iid}".encode())],
+                [Button.inline(t("btn_random_email", uid), b"re")],
+                [Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())],
             ],
         )
 
     @bot.on(events.CallbackQuery(data=b"re"))
     @auth("create")
     async def cb_random_email(event):
-        s = st(event.sender_id)
+        uid = event.sender_id
+        s = st(uid)
         email = rand_email()
         s["cr"]["email"] = email
         s["state"] = "cr_traffic"
         await reply(
             event,
-            f"👤 Email: `{email}`\n\n📦 Enter traffic in GB (0 = unlimited):",
-            buttons=[[Button.inline("◀️ Back", f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
+            t("create_email_line", uid, email=email) + "\n\n" + t("enter_traffic_prompt", uid),
+            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^sau:([yn])$"))
     @auth("create")
     async def cb_start_after_use(event):
-        s = st(event.sender_id)
+        uid = event.sender_id
+        s = st(uid)
         choice = event.pattern_match.group(1)
         s["cr"]["start_after_use"] = choice == b"y"
         s["state"] = None
-        await _create_client(event, event.sender_id)
+        await _create_client(event, uid)
 
     # ── Bulk Create ──────────────────────────────────────────────────────
 
     @bot.on(events.CallbackQuery(pattern=rb"^bk:(.+):(\d+)$"))
     @auth("create")
     async def cb_bulk_start(event):
+        uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
-        s = st(event.sender_id)
+        s = st(uid)
         s["bk_iid"] = iid
         s["bk_pid"] = panel_name
         s["bk"] = {}
         s["state"] = None
         await reply(
             event,
-            "📦 **Bulk Create**\nChoose input method:",
+            t("bulk_create_title", uid),
             buttons=[
                 [
-                    Button.inline("🔢 By Count", b"bkm:c"),
-                    Button.inline("📝 By Email List", b"bkm:e"),
+                    Button.inline(t("btn_by_count", uid), b"bkm:c"),
+                    Button.inline(t("btn_by_email_list", uid), b"bkm:e"),
                 ],
-                [Button.inline("◀️ Back", f"ib:{panel_name}:{iid}".encode())],
+                [Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())],
             ],
         )
 
     @bot.on(events.CallbackQuery(data=b"bkm:c"))
     @auth("create")
     async def cb_bulk_by_count(event):
-        s = st(event.sender_id)
+        uid = event.sender_id
+        s = st(uid)
         s["state"] = "bk_count"
         await reply(
             event,
-            "🔢 Enter number of accounts to create (1-100):",
-            buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            t("bulk_count_prompt", uid),
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
         )
 
     @bot.on(events.CallbackQuery(data=b"bkm:e"))
     @auth("create")
     async def cb_bulk_by_emails(event):
-        s = st(event.sender_id)
+        uid = event.sender_id
+        s = st(uid)
         s["state"] = "bk_emails"
         await reply(
             event,
-            "📝 Send emails, one per line (max 100):",
-            buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            t("bulk_emails_prompt", uid),
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bkn:(.+)$"))
     @auth("create")
     async def cb_bulk_naming(event):
+        uid = event.sender_id
         method = event.pattern_match.group(1).decode()
-        s = st(event.sender_id)
+        s = st(uid)
         s["bk"]["method"] = method
         if method == "r":
             # Random — generate immediately
             s["bk"]["emails"] = generate_bulk_emails("r", s["bk"]["count"])
             s["state"] = "bk_traffic"
             sample = ", ".join(f"`{e}`" for e in s["bk"]["emails"][:3])
+            ellipsis = "..." if s["bk"]["count"] > 3 else ""
             await reply(
                 event,
-                f"✅ Preview: {sample}{'...' if s['bk']['count'] > 3 else ''}\n\n"
-                "📦 Enter traffic in GB (0 = unlimited):",
-                buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+                t("bulk_preview", uid, sample=sample, ellipsis=ellipsis),
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
             )
         else:
             # All other methods need a prefix first
             s["state"] = "bk_prefix"
             await reply(
                 event,
-                "🏷 Enter prefix:",
-                buttons=[[Button.inline("◀️ Back", f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+                t("enter_prefix_prompt", uid),
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
             )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bksa:([yn])$"))
     @auth("create")
     async def cb_bulk_sau(event):
-        s = st(event.sender_id)
+        uid = event.sender_id
+        s = st(uid)
         choice = event.pattern_match.group(1)
         s["bk"]["start_after_use"] = choice == b"y"
         s["state"] = None
-        await _bulk_create_clients(event, event.sender_id)
+        await _bulk_create_clients(event, uid)

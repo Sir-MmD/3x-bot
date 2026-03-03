@@ -4,3 +4,4 @@ httpx[socks]==0.28.1
 qrcode==8.2
 pillow==12.1.1
 fpdf2==2.8.7
+uharfbuzz==0.43.0

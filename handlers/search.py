@@ -4,6 +4,7 @@ from telethon import events, Button
 
 from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot
 from helpers import format_bytes, format_expiry, make_qr, auth, reply, search_result_buttons
+from i18n import t
 from panel import build_client_link
 from pdf_export import generate_account_pdf
 
@@ -19,8 +20,8 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
         if client is None:
             await reply(
                 event,
-                "❌ User not found!",
-                buttons=[[Button.inline("◀️ Back", b"m")]],
+                t("not_found", uid),
+                buttons=[[Button.inline(t("btn_back", uid), b"m")]],
             )
             return
     else:
@@ -43,8 +44,8 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
         if not matches:
             await reply(
                 event,
-                "❌ User not found!",
-                buttons=[[Button.inline("◀️ Back", b"m")]],
+                t("not_found", uid),
+                buttons=[[Button.inline(t("btn_back", uid), b"m")]],
             )
             return
 
@@ -52,11 +53,11 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
             # Found on multiple panels — let user choose
             s["sr_matches"] = {pn: (c, ib, tr) for pn, c, ib, tr in matches}
             s["sr_email"] = email
-            btns = [[Button.inline(f"🖥 {pn}", f"srp:{pn}".encode())] for pn, *_ in matches]
-            btns.append([Button.inline("◀️ Back", b"m")])
+            btns = [[Button.inline(f"\U0001f5a5 {pn}", f"srp:{pn}".encode())] for pn, *_ in matches]
+            btns.append([Button.inline(t("btn_back", uid), b"m")])
             await reply(
                 event,
-                f"🔍 `{email}` found on **{len(matches)} panels**.\nSelect one:",
+                t("found_multi", uid, email=email, count=len(matches)),
                 buttons=btns,
             )
             return
@@ -93,22 +94,23 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
     sub_id = client.get("subId", "")
     sub_link = f"{sub_url}/{sub_id}" if sub_url and sub_id else None
 
+    unlim = t("unlimited", uid)
     lines = [
-        f"🖥 Panel: {found_panel}",
-        f"👤 Email: `{actual_email}`",
-        f"{'✅' if enabled else '🔴'} Status: {'Enabled' if enabled else 'Disabled'}",
-        f"{'🟢' if online else '⚫'} Online: {'Yes' if online else 'No'}",
+        t("sr_panel", uid, panel=found_panel),
+        t("sr_email", uid, email=actual_email),
+        t("sr_status_enabled", uid) if enabled else t("sr_status_disabled", uid),
+        t("sr_online_yes", uid) if online else t("sr_online_no", uid),
         "",
-        f"📊 Traffic: ↑ {format_bytes(up)}  ↓ {format_bytes(down)}",
-        f"📦 Limit: {format_bytes(total) if total > 0 else 'Unlimited'}",
-        f"📉 Remaining: {format_bytes(remaining) if total > 0 else 'Unlimited'}",
+        t("sr_traffic", uid, up=format_bytes(up), down=format_bytes(down)),
+        t("sr_limit", uid, limit=format_bytes(total) if total > 0 else unlim),
+        t("sr_remaining", uid, remaining=format_bytes(remaining) if total > 0 else unlim),
         "",
-        f"⏳ Duration: {format_expiry(client.get('expiryTime', 0))}",
-        f"🌐 Inbound: {inbound.get('remark', '?')}",
+        t("sr_duration", uid, duration=format_expiry(client.get("expiryTime", 0), uid)),
+        t("sr_inbound", uid, remark=inbound.get("remark", "?")),
     ]
     if sub_link:
-        lines.append(f"🔗 Subscription: `{sub_link}`")
-    lines += ["", f"📈 All-time: {format_bytes(all_time)}"]
+        lines.append(t("sr_subscription", uid, link=sub_link))
+    lines += ["", t("sr_alltime", uid, total=format_bytes(all_time))]
     if proxy_link:
         lines += ["", f"`{proxy_link}`"]
     text = "\n".join(lines)
@@ -126,10 +128,11 @@ def register(bot):
     @bot.on(events.CallbackQuery(data=b"s"))
     @auth("search")
     async def cb_search(event):
+        uid = event.sender_id
         await reply(
             event,
-            "🔍 Enter email to search:",
-            buttons=[[Button.inline("◀️ Back", b"m")]],
+            t("search_prompt", uid),
+            buttons=[[Button.inline(t("btn_back", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^srp:(.+)$"))
@@ -173,13 +176,14 @@ def register(bot):
     @bot.on(events.CallbackQuery(data=b"rm"))
     @auth("remove")
     async def cb_remove(event):
+        uid = event.sender_id
         await reply(
             event,
-            "⚠️ Are you sure you want to remove this user?",
+            t("confirm_remove", uid),
             buttons=[
                 [
-                    Button.inline("🗑 Yes, Remove", b"crm"),
-                    Button.inline("❌ Cancel", b"sr"),
+                    Button.inline(t("btn_yes_remove", uid), b"crm"),
+                    Button.inline(t("btn_cancel", uid), b"sr"),
                 ],
             ],
         )
@@ -187,7 +191,8 @@ def register(bot):
     @bot.on(events.CallbackQuery(data=b"crm"))
     @auth("remove")
     async def cb_confirm_remove(event):
-        s = st(event.sender_id)
+        uid = event.sender_id
+        s = st(uid)
         cid = s.get("sr_cid")
         iid = s.get("sr_iid")
         pid = s.get("sr_pid")
@@ -196,11 +201,11 @@ def register(bot):
         p = get_panel(pid)
         try:
             await p.delete_client(iid, cid)
-            text = "✅ User removed successfully."
+            text = t("remove_success", uid)
         except RuntimeError as e:
-            text = f"⚠️ Error: {e}"
-        clear(event.sender_id)
-        await reply(event, text, buttons=[[Button.inline("◀️ Back", b"m")]])
+            text = t("error_msg", uid, error=e)
+        clear(uid)
+        await reply(event, text, buttons=[[Button.inline(t("btn_back", uid), b"m")]])
 
     @bot.on(events.CallbackQuery(data=b"sr"))
     @auth("search")
@@ -215,7 +220,8 @@ def register(bot):
     @bot.on(events.CallbackQuery(data=b"pdf"))
     @auth("pdf")
     async def cb_export_pdf(event):
-        s = st(event.sender_id)
+        uid = event.sender_id
+        s = st(uid)
         client = s.get("sr_client")
         iid = s.get("sr_iid")
         pid = s.get("sr_pid")
@@ -234,8 +240,9 @@ def register(bot):
         sub_link = f"{sub_url}/{sub_id}" if sub_url and sub_id else None
 
         total = client.get("totalGB", 0)
-        traffic_str = format_bytes(total) if total > 0 else "Unlimited"
-        duration_str = format_expiry(client.get("expiryTime", 0))
+        unlim = t("unlimited", uid)
+        traffic_str = format_bytes(total) if total > 0 else unlim
+        duration_str = format_expiry(client.get("expiryTime", 0), uid)
 
         qr_img = make_qr(proxy_link) if proxy_link else None
         email = client["email"]
@@ -251,7 +258,8 @@ def register(bot):
                     "panel": pid,
                 }
             ],
-            title=f"Account: {email}",
+            title=t("pdf_account_title", uid, email=email),
+            uid=uid,
         )
-        await event.answer("Generating PDF...")
-        await bot.send_file(event.chat_id, pdf, caption="📄 Account PDF")
+        await event.answer(t("generating_pdf", uid))
+        await bot.send_file(event.chat_id, pdf, caption=t("account_pdf", uid))

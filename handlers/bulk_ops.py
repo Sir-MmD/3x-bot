@@ -6,6 +6,7 @@ from telethon import events, Button
 
 from config import get_panel, st, clear, bot
 from helpers import auth, reply
+from i18n import t
 
 
 async def _bulk_op_execute(event, uid: int):
@@ -20,15 +21,15 @@ async def _bulk_op_execute(event, uid: int):
     if not clients:
         await reply(
             event,
-            "⚠️ No accounts to process.",
-            buttons=[[Button.inline("◀️ Back", b"m")]],
+            t("bo_no_accounts", uid),
+            buttons=[[Button.inline(t("btn_back", uid), b"m")]],
         )
         clear(uid)
         return
 
     progress_msg = await bot.send_message(
         event.chat_id,
-        f"⏳ Processing 0/{len(clients)}...",
+        t("bo_processing", uid, done=0, total=len(clients)),
     )
 
     success = 0
@@ -120,7 +121,7 @@ async def _bulk_op_execute(event, uid: int):
                         current = done_count
             if current % 10 == 0 or current == total:
                 try:
-                    await progress_msg.edit(f"⏳ Processing {current}/{total}...")
+                    await progress_msg.edit(t("bo_processing", uid, done=current, total=total))
                 except Exception:
                     pass
 
@@ -133,27 +134,26 @@ async def _bulk_op_execute(event, uid: int):
     except Exception:
         pass
 
-    op_label = "Days" if op == "d" else "Traffic"
-    action_label = "Added" if action == "add" else "Subtracted"
+    action_label = t("action_added", uid) if action == "add" else t("action_subtracted", uid)
     if op == "d":
-        value_str = f"{value} day(s)"
+        value_str = t("days_unit", uid, value=value)
     else:
-        value_str = f"{value} GB"
+        value_str = t("gb_unit", uid, value=value)
 
     lines = [
-        f"⚡ **Bulk Operation Complete**",
+        t("bo_complete", uid),
         "",
-        f"Operation: {action_label} {value_str}",
-        f"Panel: {panel_name}",
+        t("bo_operation", uid, action=action_label, value=value_str),
+        t("sr_panel", uid, panel=panel_name),
         "",
-        f"✅ Success: {success}",
-        f"❌ Failed: {failed}",
-        f"⏭ Skipped (unlimited): {skipped}",
+        t("bo_success", uid, count=success),
+        t("bo_failed", uid, count=failed),
+        t("bo_skipped", uid, count=skipped),
     ]
     await bot.send_message(
         event.chat_id,
         "\n".join(lines),
-        buttons=[[Button.inline("◀️ Back", b"m")]],
+        buttons=[[Button.inline(t("btn_back", uid), b"m")]],
         parse_mode="md",
     )
     clear(uid)
@@ -161,7 +161,8 @@ async def _bulk_op_execute(event, uid: int):
 
 async def handle_bulk_op_input(event):
     """Handle bo_input text input. Returns True if handled."""
-    s = st(event.sender_id)
+    uid = event.sender_id
+    s = st(uid)
     state = s.get("state")
 
     if state != "bo_input":
@@ -174,36 +175,36 @@ async def handle_bulk_op_input(event):
             days = int(event.text.strip())
         except ValueError:
             s["state"] = "bo_input"
-            await event.respond("⚠️ Invalid number. Enter days:")
+            await event.respond(t("bo_days_invalid", uid))
             return True
         if days <= 0:
             s["state"] = "bo_input"
-            await event.respond("⚠️ Must be positive. Enter days:")
+            await event.respond(t("bo_days_positive", uid))
             return True
         s["bo_value"] = days
         if s.get("bo_action") == "add":
             await event.respond(
-                "⏱ Start timer after first use?",
+                t("start_after_use_prompt", uid),
                 buttons=[
-                    [Button.inline("✅ Yes", b"bosa:y"), Button.inline("❌ No", b"bosa:n")],
-                    [Button.inline("◀️ Back", f"bo:{s['bo_pid']}".encode())],
+                    [Button.inline(t("btn_yes", uid), b"bosa:y"), Button.inline(t("btn_no", uid), b"bosa:n")],
+                    [Button.inline(t("btn_back", uid), f"bo:{s['bo_pid']}".encode())],
                 ],
             )
         else:
-            await _bulk_op_execute(event, event.sender_id)
+            await _bulk_op_execute(event, uid)
     else:
         try:
             gb = float(event.text.strip())
         except ValueError:
             s["state"] = "bo_input"
-            await event.respond("⚠️ Invalid number. Enter GB:")
+            await event.respond(t("bo_gb_invalid", uid))
             return True
         if gb <= 0:
             s["state"] = "bo_input"
-            await event.respond("⚠️ Must be positive. Enter GB:")
+            await event.respond(t("bo_gb_positive", uid))
             return True
         s["bo_value"] = gb
-        await _bulk_op_execute(event, event.sender_id)
+        await _bulk_op_execute(event, uid)
     return True
 
 
@@ -211,17 +212,18 @@ def register(bot):
     @bot.on(events.CallbackQuery(pattern=rb"^bo:(.+)$"))
     @auth("bulk")
     async def cb_bulk_op_start(event):
+        uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
-        s = st(event.sender_id)
+        s = st(uid)
         s["bo_pid"] = panel_name
         await reply(
             event,
-            "⚡ **Bulk Operation**\nFilter accounts:",
+            t("bo_filter_title", uid),
             buttons=[
-                [Button.inline("✅ Only Enabled", b"bof:en")],
-                [Button.inline("🔴 Only Disabled", b"bof:dis")],
-                [Button.inline("📋 All Accounts", b"bof:all")],
-                [Button.inline("◀️ Back", f"il:{panel_name}".encode())],
+                [Button.inline(t("btn_only_enabled", uid), b"bof:en")],
+                [Button.inline(t("btn_only_disabled", uid), b"bof:dis")],
+                [Button.inline(t("btn_all_accounts", uid), b"bof:all")],
+                [Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())],
             ],
         )
 
@@ -250,59 +252,60 @@ def register(bot):
                 collected.append((client, ib["id"], client_id, protocol))
 
         s["bo_clients"] = collected
-        filter_label = {"en": "Enabled", "dis": "Disabled", "all": "All"}[filt]
+        filter_key = {"en": "filter_enabled", "dis": "filter_disabled", "all": "filter_all"}[filt]
+        filter_label = t(filter_key, uid)
         await reply(
             event,
-            f"⚡ **Bulk Operation**\n"
-            f"Filter: {filter_label}\n"
-            f"Found **{len(collected)}** account(s)\n\n"
-            "Choose operation:",
+            t("bo_filter_result", uid, filter=filter_label, count=len(collected)),
             buttons=[
-                [Button.inline("⏳ Days", b"bot:d"), Button.inline("📊 Traffic", b"bot:t")],
-                [Button.inline("◀️ Back", f"bo:{panel_name}".encode())],
+                [Button.inline(t("btn_days", uid), b"bot:d"), Button.inline(t("btn_traffic", uid), b"bot:t")],
+                [Button.inline(t("btn_back", uid), f"bo:{panel_name}".encode())],
             ],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bot:([dt])$"))
     @auth("bulk")
     async def cb_bulk_op_type(event):
+        uid = event.sender_id
         op = event.pattern_match.group(1).decode()
-        s = st(event.sender_id)
+        s = st(uid)
         s["bo_op"] = op
-        label = "Days" if op == "d" else "Traffic"
+        label = t("op_days", uid) if op == "d" else t("op_traffic", uid)
         await reply(
             event,
-            f"⚡ **Bulk Operation — {label}**\nChoose action:",
+            t("bo_type_title", uid, type=label),
             buttons=[
-                [Button.inline("➕ Add", b"boa:add"), Button.inline("➖ Subtract", b"boa:sub")],
-                [Button.inline("◀️ Back", f"bo:{s['bo_pid']}".encode())],
+                [Button.inline(t("btn_add", uid), b"boa:add"), Button.inline(t("btn_subtract", uid), b"boa:sub")],
+                [Button.inline(t("btn_back", uid), f"bo:{s['bo_pid']}".encode())],
             ],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^boa:(.+)$"))
     @auth("bulk")
     async def cb_bulk_op_action(event):
+        uid = event.sender_id
         action = event.pattern_match.group(1).decode()
-        s = st(event.sender_id)
+        s = st(uid)
         s["bo_action"] = action
         s["state"] = "bo_input"
         op = s["bo_op"]
         if op == "d":
-            verb = "add" if action == "add" else "subtract"
-            prompt = f"⚡ Enter number of days to {verb}:"
+            verb = t("verb_add", uid) if action == "add" else t("verb_subtract", uid)
+            prompt = t("bo_days_prompt", uid, verb=verb)
         else:
-            verb = "add" if action == "add" else "subtract"
-            prompt = f"⚡ Enter GB to {verb}:"
+            verb = t("verb_add", uid) if action == "add" else t("verb_subtract", uid)
+            prompt = t("bo_traffic_prompt", uid, verb=verb)
         await reply(
             event,
             prompt,
-            buttons=[[Button.inline("◀️ Back", f"bo:{s['bo_pid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"bo:{s['bo_pid']}".encode())]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bosa:([yn])$"))
     @auth("bulk")
     async def cb_bulk_op_sau(event):
+        uid = event.sender_id
         choice = event.pattern_match.group(1).decode()
-        s = st(event.sender_id)
+        s = st(uid)
         s["bo_sau"] = choice == "y"
-        await _bulk_op_execute(event, event.sender_id)
+        await _bulk_op_execute(event, uid)
