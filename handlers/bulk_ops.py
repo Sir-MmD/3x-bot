@@ -209,7 +209,7 @@ async def handle_bulk_op_input(event):
 
 def register(bot):
     @bot.on(events.CallbackQuery(pattern=rb"^bo:(.+)$"))
-    @auth
+    @auth("bulk")
     async def cb_bulk_op_start(event):
         panel_name = event.pattern_match.group(1).decode()
         s = st(event.sender_id)
@@ -226,7 +226,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bof:(.+)$"))
-    @auth
+    @auth("bulk")
     async def cb_bulk_op_filter(event):
         filt = event.pattern_match.group(1).decode()
         uid = event.sender_id
@@ -264,7 +264,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bot:([dt])$"))
-    @auth
+    @auth("bulk")
     async def cb_bulk_op_type(event):
         op = event.pattern_match.group(1).decode()
         s = st(event.sender_id)
@@ -280,7 +280,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^boa:(.+)$"))
-    @auth
+    @auth("bulk")
     async def cb_bulk_op_action(event):
         action = event.pattern_match.group(1).decode()
         s = st(event.sender_id)
@@ -300,7 +300,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bosa:([yn])$"))
-    @auth
+    @auth("bulk")
     async def cb_bulk_op_sau(event):
         choice = event.pattern_match.group(1).decode()
         s = st(event.sender_id)

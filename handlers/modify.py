@@ -208,7 +208,7 @@ async def handle_modify_days_input(event):
 
 def register(bot):
     @bot.on(events.CallbackQuery(data=b"mt"))
-    @auth
+    @auth("modify")
     async def cb_modify_traffic(event):
         s = st(event.sender_id)
         client = s.get("sr_client")
@@ -241,7 +241,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"mte"))
-    @auth
+    @auth("modify")
     async def cb_mt_edit(event):
         s = st(event.sender_id)
         s["state"] = "mt_edit"
@@ -252,7 +252,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"mtr"))
-    @auth
+    @auth("modify")
     async def cb_mt_reset(event):
         await reply(
             event,
@@ -266,7 +266,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"mtrc"))
-    @auth
+    @auth("modify")
     async def cb_mt_reset_confirm(event):
         s = st(event.sender_id)
         iid = s.get("sr_iid")
@@ -283,7 +283,7 @@ def register(bot):
         await show_search_result(event, event.sender_id, email, panel_name=pid)
 
     @bot.on(events.CallbackQuery(data=b"mta"))
-    @auth
+    @auth("modify")
     async def cb_mt_add(event):
         s = st(event.sender_id)
         s["state"] = "mt_add"
@@ -294,7 +294,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"mts"))
-    @auth
+    @auth("modify")
     async def cb_mt_sub(event):
         s = st(event.sender_id)
         s["state"] = "mt_sub"
@@ -307,7 +307,7 @@ def register(bot):
     # ── Modify Days ──────────────────────────────────────────────────────
 
     @bot.on(events.CallbackQuery(data=b"md"))
-    @auth
+    @auth("modify")
     async def cb_modify_days(event):
         s = st(event.sender_id)
         client = s.get("sr_client")
@@ -335,7 +335,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"mde"))
-    @auth
+    @auth("modify")
     async def cb_md_edit(event):
         s = st(event.sender_id)
         s["state"] = "md_edit"
@@ -346,7 +346,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"mda"))
-    @auth
+    @auth("modify")
     async def cb_md_add(event):
         s = st(event.sender_id)
         s["state"] = "md_add"
@@ -357,7 +357,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"mds"))
-    @auth
+    @auth("modify")
     async def cb_md_sub(event):
         s = st(event.sender_id)
         s["state"] = "md_sub"
@@ -368,7 +368,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^mdsa:([yn])$"))
-    @auth
+    @auth("modify")
     async def cb_md_sau(event):
         s = st(event.sender_id)
         choice = event.pattern_match.group(1)

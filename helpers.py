@@ -8,8 +8,10 @@ from base64 import b64encode
 
 import qrcode
 from telethon import events, Button
+from telethon.tl.functions.channels import GetParticipantRequest
+from telethon.errors import UserNotParticipantError
 
-from config import ALLOWED, bot, panels
+from config import bot, panels, admins, force_join, user_perms, has_perm
 
 
 # ── Formatting ───────────────────────────────────────────────────────────────
@@ -86,15 +88,69 @@ def make_qr(data: str) -> io.BytesIO:
     return buf
 
 
+# ── Force-join cache ──────────────────────────────────────────────────────────
+
+_fj_cache: dict[tuple[int, str], float] = {}  # (uid, channel) → expiry timestamp
+_FJ_TTL = 300  # 5 minutes
+
+
+async def _check_force_join(event, uid: int) -> bool:
+    if not force_join:
+        return True
+    if uid in admins:
+        return True
+    now = time.time()
+    missing = []
+    for ch in force_join:
+        key = (uid, ch)
+        if _fj_cache.get(key, 0) > now:
+            continue
+        try:
+            await bot(GetParticipantRequest(ch, uid))
+            _fj_cache[key] = now + _FJ_TTL
+        except UserNotParticipantError:
+            missing.append(ch)
+        except Exception:
+            missing.append(ch)
+    if missing:
+        btns = [[Button.url(f"Join {ch}", f"https://t.me/{ch.lstrip('@')}")] for ch in missing]
+        btns.append([Button.inline("✅ I've Joined", b"fj")])
+        await reply(event, "⚠️ Please join these channels first:", buttons=btns)
+        return False
+    return True
+
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
-def auth(func):
-    """Decorator that silently ignores non-allowed users."""
-    async def wrapper(event):
-        if event.sender_id not in ALLOWED:
-            return
-        return await func(event)
-    return wrapper
+def auth(func_or_perm=None):
+    """
+    @auth           — any authorized user
+    @auth("create") — requires 'create' permission
+    """
+    if callable(func_or_perm):
+        # @auth without parentheses
+        func = func_or_perm
+        async def wrapper(event):
+            uid = event.sender_id
+            if not user_perms(uid):
+                return
+            if not await _check_force_join(event, uid):
+                return
+            return await func(event)
+        return wrapper
+
+    # @auth("perm") with parentheses
+    perm = func_or_perm
+    def decorator(func):
+        async def wrapper(event):
+            uid = event.sender_id
+            if not has_perm(uid, perm):
+                return
+            if not await _check_force_join(event, uid):
+                return
+            return await func(event)
+        return wrapper
+    return decorator
 
 
 # ── Reply ────────────────────────────────────────────────────────────────────
@@ -170,10 +226,39 @@ def build_client_dict(
 
 # ── Main menu ────────────────────────────────────────────────────────────────
 
-def main_menu_buttons():
-    btns = [[Button.inline("🔍 Search User", b"s")]]
-    for name in panels:
-        btns.append([Button.inline(f"📋 Inbound List ({name})", f"il:{name}".encode())])
+def main_menu_buttons(uid: int):
+    btns = []
+    if has_perm(uid, "search"):
+        btns.append([Button.inline("🔍 Search User", b"s")])
+        for name in panels:
+            btns.append([Button.inline(f"📋 Inbound List ({name})", f"il:{name}".encode())])
+    return btns
+
+
+def search_result_buttons(uid: int, enabled: bool):
+    """Build search result action buttons filtered by user permissions."""
+    btns = []
+    row1 = []
+    if has_perm(uid, "toggle"):
+        if enabled:
+            row1.append(Button.inline("🔴 Disable", b"dis"))
+        else:
+            row1.append(Button.inline("🟢 Enable", b"en"))
+    if has_perm(uid, "remove"):
+        row1.append(Button.inline("🗑 Remove", b"rm"))
+    if row1:
+        btns.append(row1)
+    row2 = []
+    if has_perm(uid, "modify"):
+        row2.append(Button.inline("📊 Traffic", b"mt"))
+        row2.append(Button.inline("⏳ Days", b"md"))
+    if row2:
+        btns.append(row2)
+    row3 = []
+    if has_perm(uid, "pdf"):
+        row3.append(Button.inline("📄 PDF", b"pdf"))
+    row3.append(Button.inline("◀️ Back", b"m"))
+    btns.append(row3)
     return btns
 
 

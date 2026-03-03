@@ -235,30 +235,68 @@ configure_bot() {
     print_separator
     echo
 
-    local api_id api_hash token allowed_users bot_proxy
+    local api_id api_hash token bot_proxy force_join
 
     read -rp " Telegram API ID: " api_id < /dev/tty
     read -rp " Telegram API Hash: " api_hash < /dev/tty
     read -rp " Bot Token: " token < /dev/tty
-    read -rp " Allowed User IDs (comma-separated): " allowed_users < /dev/tty
     read -rp " Bot Proxy (e.g. socks5://127.0.0.1:1080, leave empty to skip): " bot_proxy < /dev/tty
-
-    # Format allowed_users as TOML array: "1,2,3" -> [1, 2, 3]
-    local users_array
-    users_array=$(echo "$allowed_users" | tr -d ' ' | sed 's/,/, /g')
+    read -rp " Force-join channels (comma-separated @handles, leave empty to skip): " force_join < /dev/tty
 
     cat > "$config_file" <<EOF
 [bot]
 api_id = ${api_id}
 api_hash = "${api_hash}"
 token = "${token}"
-allowed_users = [${users_array}]
 EOF
 
     if [[ -n "$bot_proxy" ]]; then
         echo "proxy = \"${bot_proxy}\"" >> "$config_file"
     fi
 
+    if [[ -n "$force_join" ]]; then
+        # Format as TOML array: "@ch1, @ch2" -> ["@ch1", "@ch2"]
+        local fj_array
+        fj_array=$(echo "$force_join" | tr -d ' ' | sed 's/,/", "/g')
+        echo "force_join = [\"${fj_array}\"]" >> "$config_file"
+    fi
+
+    # ── Admins ──────────────────────────────────────────────────────
+    local admin_num=1
+    local add_more_admin="y"
+
+    while [[ "$add_more_admin" =~ ^[Yy]$ ]]; do
+        echo
+        print_separator
+        echo -e " ${BOLD}Admin #${admin_num}${NC}"
+        print_separator
+        echo
+
+        local admin_id admin_perms
+
+        read -rp " Telegram User ID: " admin_id < /dev/tty
+        echo -e " ${CYAN}Available permissions: *, search, create, modify, toggle, remove, bulk, pdf${NC}"
+        read -rp " Permissions (comma-separated, * for all): " admin_perms < /dev/tty
+
+        # Format as TOML array: "search, create" -> ["search", "create"]
+        local perms_array
+        perms_array=$(echo "$admin_perms" | tr -d ' ' | sed 's/,/", "/g')
+
+        cat >> "$config_file" <<EOF
+
+[[admins]]
+id = ${admin_id}
+permissions = ["${perms_array}"]
+EOF
+
+        admin_num=$((admin_num + 1))
+
+        echo
+        read -rp " Add another admin? [y/N]: " add_more_admin < /dev/tty
+        add_more_admin="${add_more_admin:-n}"
+    done
+
+    # ── Panels ──────────────────────────────────────────────────────
     local panel_num=1
     local add_more="y"
 

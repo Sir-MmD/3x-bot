@@ -432,7 +432,7 @@ async def handle_bulk_create_input(event):
 
 def register(bot):
     @bot.on(events.CallbackQuery(pattern=rb"^ca:(.+):(\d+)$"))
-    @auth
+    @auth("create")
     async def cb_create_start(event):
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
@@ -451,7 +451,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"re"))
-    @auth
+    @auth("create")
     async def cb_random_email(event):
         s = st(event.sender_id)
         email = rand_email()
@@ -464,7 +464,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^sau:([yn])$"))
-    @auth
+    @auth("create")
     async def cb_start_after_use(event):
         s = st(event.sender_id)
         choice = event.pattern_match.group(1)
@@ -475,7 +475,7 @@ def register(bot):
     # ── Bulk Create ──────────────────────────────────────────────────────
 
     @bot.on(events.CallbackQuery(pattern=rb"^bk:(.+):(\d+)$"))
-    @auth
+    @auth("create")
     async def cb_bulk_start(event):
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
@@ -497,7 +497,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"bkm:c"))
-    @auth
+    @auth("create")
     async def cb_bulk_by_count(event):
         s = st(event.sender_id)
         s["state"] = "bk_count"
@@ -508,7 +508,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(data=b"bkm:e"))
-    @auth
+    @auth("create")
     async def cb_bulk_by_emails(event):
         s = st(event.sender_id)
         s["state"] = "bk_emails"
@@ -519,7 +519,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bkn:(.+)$"))
-    @auth
+    @auth("create")
     async def cb_bulk_naming(event):
         method = event.pattern_match.group(1).decode()
         s = st(event.sender_id)
@@ -545,7 +545,7 @@ def register(bot):
             )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bksa:([yn])$"))
-    @auth
+    @auth("create")
     async def cb_bulk_sau(event):
         s = st(event.sender_id)
         choice = event.pattern_match.group(1)

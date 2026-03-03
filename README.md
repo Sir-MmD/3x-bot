@@ -12,6 +12,9 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **PDF export** — account details with QR codes and subscription links
 - **Proxy support** — HTTP/SOCKS proxy for both Telegram and panel connections
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
+- **Per-admin permissions** — grant each admin specific operation permissions
+- **Public mode** — optionally open the bot to everyone with configurable default permissions
+- **Force join** — require users to join specific channels before using the bot
 
 ## Quick Install
 
@@ -38,8 +41,18 @@ cp config.toml.example config.toml
 api_id = 123456
 api_hash = "your_api_hash"
 token = "your_bot_token"
-allowed_users = [123456789]
-# proxy = "socks5://127.0.0.1:1080"  # optional, proxy for Telegram connection
+# proxy = "socks5://127.0.0.1:1080"  # optional
+# public = true                       # allow everyone to use the bot
+# public_permissions = ["search", "pdf"]
+# force_join = ["@channel1", "@channel2"]
+
+[[admins]]
+id = 123456789
+permissions = ["*"]  # all permissions
+
+# [[admins]]
+# id = 987654321
+# permissions = ["search", "create", "pdf"]
 
 [[panels]]
 name = "Panel1"
@@ -62,12 +75,33 @@ python bot.py
 |-------|-------------|
 | `api_id` / `api_hash` | Telegram API credentials from [my.telegram.org](https://my.telegram.org) |
 | `token` | Bot token from [@BotFather](https://t.me/BotFather) |
-| `allowed_users` | List of Telegram user IDs authorized to use the bot |
+| `proxy` (bot) | Optional proxy for Telegram connection (`socks5://`, `socks4://`, `http://`) |
+| `public` | Set `true` to allow everyone to use the bot (default `false`) |
+| `public_permissions` | Permissions granted to all users in public mode |
+| `force_join` | List of channels users must join before using the bot |
+| `[[admins]]` `id` | Telegram user ID of an admin |
+| `[[admins]]` `permissions` | List of permission strings (or `["*"]` for all) |
 | `name` | Panel nickname displayed in the bot UI and PDFs |
 | `url` | 3x-ui panel URL including base path |
 | `sub_url` | Optional subscription server URL |
-| `proxy` (bot) | Optional proxy for Telegram connection (`socks5://`, `socks4://`, `http://`) |
 | `proxy` (panel) | Optional proxy for panel API connection (`socks5://`, `http://`) |
+
+## Permissions
+
+Each admin gets a list of permissions. Use `*` to grant all permissions.
+
+| Permission | Covers |
+|-----------|--------|
+| `search` | Search user, view details, view inbound list/detail |
+| `create` | Create account (single & bulk) |
+| `modify` | Modify traffic & duration |
+| `toggle` | Enable/disable accounts |
+| `remove` | Remove accounts |
+| `bulk` | Bulk operations (add/subtract days/traffic) |
+| `pdf` | PDF export |
+| `*` | All of the above |
+
+Admins always bypass force-join checks. In public mode, non-admin users get `public_permissions` and must pass force-join (if configured).
 
 ## Project Structure
 
