@@ -1,9 +1,11 @@
+import sys
 import tomllib
 from pathlib import Path
 
 from db import get_user_lang
 
-_TRANSLATIONS_DIR = Path(__file__).parent / "translations"
+_BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+_TRANSLATIONS_DIR = _BASE_DIR / "translations"
 
 LANGUAGES: dict[str, str] = {
     "en": "\U0001f1ec\U0001f1e7 English",

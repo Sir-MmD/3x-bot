@@ -16,7 +16,8 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Proxy support** — HTTP/SOCKS proxy for both Telegram and panel connections
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
 - **Per-admin permissions** — grant each admin specific operation permissions
-- **Public mode** — optionally open the bot to everyone with configurable default permissions
+- **Per-admin panel & inbound access** — restrict each admin to specific panels and inbounds within those panels
+- **Public mode** — optionally open the bot to everyone with configurable default permissions, panels, and inbounds
 - **Force join** — require users to join specific channels before using the bot
 - **Multi-language** — English, Persian (فارسی), Russian (Русский) with per-user language selection; PDFs render in the user's chosen language with RTL support for Persian
 - **Backup & Restore** — download a timestamped ZIP of config + database, restore by uploading it back
@@ -80,6 +81,17 @@ Each admin gets a list of permissions. Use `*` to grant all permissions.
 | `*` | All of the above |
 
 Admins always bypass force-join checks. In public mode, non-admin users get `public_permissions` and must pass force-join (if configured).
+
+### Panel & Inbound Access
+
+Beyond permissions, you can restrict **which panels** and **which inbounds** each admin can see:
+
+- **Panel access** — each admin has a `panels` field (`*` = all panels, or a specific set). Owners always see all panels.
+- **Inbound access** — each admin has an `inbounds` restriction (default: all). You can restrict access per-panel to specific inbound IDs. For example, an admin might see all inbounds on Panel1 but only inbounds 1 and 3 on Panel2.
+
+Inbound restrictions are enforced across the bot: inbound list, client list, search results, account creation, bulk operations, reset traffic, and delete depleted.
+
+The same panel and inbound restrictions are available for **public mode** users via the Settings view.
 
 ## Language Support
 

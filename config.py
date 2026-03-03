@@ -78,13 +78,13 @@ def is_owner(uid: int) -> bool:
     if uid == owner_id:
         return True
     from db import get_db_admins
-    return get_db_admins().get(uid, (set(), False))[1]
+    return get_db_admins().get(uid, (set(), False, {"*"}, {}))[1]
 
 
 def _count_owners() -> int:
     from db import get_db_admins
     count = 1  # config owner always counts
-    for _uid, (_perms, _is_owner) in get_db_admins().items():
+    for _uid, (_perms, _is_owner, _panels, _inbounds) in get_db_admins().items():
         if _is_owner and _uid != owner_id:
             count += 1
     return count
@@ -116,6 +116,55 @@ def get_force_join() -> list[str]:
     from db import get_setting
     val = get_setting("force_join")
     return [ch.strip() for ch in val.split(",") if ch.strip()]
+
+
+def user_panels(uid: int) -> set[str] | None:
+    """Return the set of panel names a user may access, or None for 'all'."""
+    if is_owner(uid):
+        return None  # owners see everything
+    from db import get_db_admins, get_setting
+    db_admins = get_db_admins()
+    if uid in db_admins:
+        ap = db_admins[uid][2]
+        return None if "*" in ap else ap
+    if get_setting("public_mode") == "1":
+        pp = get_setting("public_panels", "*")
+        pset = set(pp.split(",")) if pp else {"*"}
+        pset.discard("")
+        return None if "*" in pset else pset
+    return set()
+
+
+def user_inbounds(uid: int, panel_name: str) -> set[int] | None:
+    """Return allowed inbound IDs for a user on a panel, or None for 'all'."""
+    if is_owner(uid):
+        return None
+    from db import get_db_admins, get_setting, _parse_inbounds_json
+    db_admins = get_db_admins()
+    if uid in db_admins:
+        ib_map = db_admins[uid][3]
+        return ib_map.get(panel_name)  # None = all (panel not listed)
+    if get_setting("public_mode") == "1":
+        raw = get_setting("public_inbounds", "{}")
+        ib_map = _parse_inbounds_json(raw)
+        return ib_map.get(panel_name)  # None = all
+    return None
+
+
+def visible_inbounds(uid: int, panel_name: str, inbounds: list[dict]) -> list[dict]:
+    """Filter inbound list by user's inbound access on a panel."""
+    allowed = user_inbounds(uid, panel_name)
+    if allowed is None:
+        return inbounds
+    return [ib for ib in inbounds if ib["id"] in allowed]
+
+
+def visible_panels(uid: int) -> dict:
+    """Return the panels dict filtered by user's panel access."""
+    allowed = user_panels(uid)
+    if allowed is None:
+        return dict(panels)
+    return {n: p for n, p in panels.items() if n in allowed}
 
 
 # ── Panels ───────────────────────────────────────────────────────────────────

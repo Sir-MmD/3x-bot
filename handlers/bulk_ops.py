@@ -4,7 +4,7 @@ import time
 
 from telethon import events, Button
 
-from config import get_panel, st, clear, bot
+from config import get_panel, st, clear, bot, visible_panels, visible_inbounds
 from helpers import auth, reply
 from i18n import t
 
@@ -231,8 +231,11 @@ def register(bot):
     async def cb_bulk_op_start(event):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
+        if panel_name not in visible_panels(uid):
+            return
         p = get_panel(panel_name)
         inbounds = await p.list_inbounds()
+        inbounds = visible_inbounds(uid, panel_name, inbounds)
         s = st(uid)
         s["bo_pid"] = panel_name
         s["bo_inbounds"] = inbounds

@@ -11,7 +11,7 @@ from telethon import events, Button
 from telethon.tl.functions.channels import GetParticipantRequest
 from telethon.errors import UserNotParticipantError
 
-from config import bot, panels, user_perms, has_perm, is_owner, get_force_join
+from config import bot, panels, user_perms, has_perm, is_owner, get_force_join, visible_panels
 from db import get_user_lang, get_db_admins
 from i18n import t, LANGUAGES
 
@@ -254,7 +254,7 @@ def main_menu_buttons(uid: int):
         btns.append([Button.inline(t("btn_search", uid), b"s")])
     perms = user_perms(uid)
     if perms & {"create", "bulk"}:
-        for name in panels:
+        for name in visible_panels(uid):
             btns.append([Button.inline(t("btn_panel", uid, name=name), f"pm:{name}".encode())])
     if "owner" in perms:
         btns.append([Button.inline(t("btn_owner_panel", uid), b"op")])
