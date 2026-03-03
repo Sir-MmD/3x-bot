@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install setuptools pyinstaller staticx patchelf
+          pip install "setuptools<82" pyinstaller staticx patchelf
 
       - name: Build with PyInstaller
         run: pyinstaller 3x-bot.spec --noconfirm
