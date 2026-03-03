@@ -1,13 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+
+pil_datas, pil_binaries, pil_hiddenimports = collect_all('PIL')
 
 a = Analysis(
     ['bot.py'],
     pathex=[],
-    binaries=[],
+    binaries=pil_binaries,
     datas=[
         ('translations/*.toml', 'translations'),
         ('fonts/*.ttf', 'fonts'),
-    ],
+    ] + pil_datas,
     hiddenimports=[
         'handlers.menu',
         'handlers.search',
@@ -17,8 +20,7 @@ a = Analysis(
         'handlers.bulk_ops',
         'handlers.owner',
         'handlers.router',
-        'PIL',
-    ],
+    ] + pil_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
