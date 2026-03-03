@@ -7,10 +7,18 @@ from handlers.search import show_search_result
 from handlers.modify import handle_modify_traffic_input, handle_modify_days_input
 from handlers.create import handle_create_input, handle_bulk_create_input
 from handlers.bulk_ops import handle_bulk_op_input
-from handlers.owner import handle_owner_input
+from handlers.owner import handle_owner_input, handle_owner_restore
 
 
 def register(bot):
+    @bot.on(events.NewMessage(func=lambda e: e.document))
+    @auth
+    async def on_document(event):
+        uid = event.sender_id
+        s = st(uid)
+        if s.get("state") == "op_rs":
+            await handle_owner_restore(event)
+
     @bot.on(events.NewMessage(func=lambda e: e.text and not e.text.startswith("/")))
     @auth
     async def on_message(event):

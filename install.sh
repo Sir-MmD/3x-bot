@@ -3,6 +3,7 @@ set -e
 
 # --- Constants ---
 INSTALL_DIR="/opt/3x-bot"
+DATA_DIR="$HOME/3x-bot"
 SERVICE_NAME="3x-bot"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 REPO_URL="https://github.com/Sir-MmD/3x-bot.git"
@@ -227,7 +228,8 @@ EOF
 # --- Configuration ---
 
 configure_bot() {
-    local config_file="${INSTALL_DIR}/config.toml"
+    mkdir -p "$DATA_DIR"
+    local config_file="${DATA_DIR}/config.toml"
 
     echo
     print_separator
@@ -364,7 +366,9 @@ do_install() {
     info "Installing Python dependencies..."
     "${INSTALL_DIR}/venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 
-    if [[ ! -f "${INSTALL_DIR}/config.toml" ]]; then
+    mkdir -p "$DATA_DIR"
+
+    if [[ ! -f "${DATA_DIR}/config.toml" ]]; then
         configure_bot
     else
         warn "config.toml already exists, skipping"
@@ -389,6 +393,32 @@ do_update() {
 
     detect_distro
     ensure_python312
+
+    # ── Migrate data files to ~/3x-bot/ ─────────────────────────────
+    mkdir -p "$DATA_DIR"
+
+    # Check old locations: /opt/3x-bot/ and /etc/3x-bot/
+    for OLD_DIR in "${INSTALL_DIR}" "/etc/3x-bot"; do
+        if [[ -f "${OLD_DIR}/config.toml" && ! -f "${DATA_DIR}/config.toml" ]]; then
+            info "Migrating config.toml from ${OLD_DIR}/ to ${DATA_DIR}/"
+            mv "${OLD_DIR}/config.toml" "${DATA_DIR}/config.toml"
+        fi
+        if [[ -f "${OLD_DIR}/users.db" && ! -f "${DATA_DIR}/3x-bot.db" ]]; then
+            info "Migrating users.db from ${OLD_DIR}/ to ${DATA_DIR}/3x-bot.db"
+            mv "${OLD_DIR}/users.db" "${DATA_DIR}/3x-bot.db"
+        fi
+        if [[ -f "${OLD_DIR}/3x-bot.db" && ! -f "${DATA_DIR}/3x-bot.db" ]]; then
+            info "Migrating 3x-bot.db from ${OLD_DIR}/ to ${DATA_DIR}/"
+            mv "${OLD_DIR}/3x-bot.db" "${DATA_DIR}/3x-bot.db"
+        fi
+        if [[ -f "${OLD_DIR}/bot.session" && ! -f "${DATA_DIR}/bot.session" ]]; then
+            info "Migrating bot.session from ${OLD_DIR}/ to ${DATA_DIR}/"
+            mv "${OLD_DIR}/bot.session" "${DATA_DIR}/bot.session"
+            if [[ -f "${OLD_DIR}/bot.session-journal" ]]; then
+                mv "${OLD_DIR}/bot.session-journal" "${DATA_DIR}/bot.session-journal"
+            fi
+        fi
+    done
 
     info "Pulling latest changes..."
     git -C "$INSTALL_DIR" pull
@@ -427,6 +457,9 @@ do_uninstall() {
 
     info "Removing ${INSTALL_DIR}..."
     rm -rf "$INSTALL_DIR"
+
+    info "Removing ${DATA_DIR}..."
+    rm -rf "$DATA_DIR"
 
     info "Uninstall complete!"
 }

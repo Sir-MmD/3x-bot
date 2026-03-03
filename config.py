@@ -1,3 +1,4 @@
+import sys
 import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
@@ -7,9 +8,64 @@ from telethon import TelegramClient
 
 from panel import PanelClient
 
+# ── Paths ────────────────────────────────────────────────────────────────────
+
+DATA_DIR = Path.home() / "3x-bot"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+_CONFIG_PATH = DATA_DIR / "config.toml"
+
 # ── Config ───────────────────────────────────────────────────────────────────
 
-cfg = tomllib.loads(Path("config.toml").read_text())
+
+def _read_config() -> dict:
+    """Read and parse config.toml, or run interactive setup if missing/corrupt."""
+    if _CONFIG_PATH.exists():
+        try:
+            return tomllib.loads(_CONFIG_PATH.read_text())
+        except Exception as e:
+            print(f"\n[ERR] config.toml is corrupt: {e}")
+            print(f"      Path: {_CONFIG_PATH}")
+            resp = input("      Create a new config? [y/N]: ").strip().lower()
+            if resp != "y":
+                sys.exit(1)
+
+    # Interactive setup
+    print("\n── 3x-bot Setup ──────────────────────────")
+    print(f"Config will be saved to: {_CONFIG_PATH}\n")
+
+    api_id = input("  Telegram API ID: ").strip()
+    api_hash = input("  Telegram API Hash: ").strip()
+    token = input("  Bot Token: ").strip()
+    owner = input("  Owner Telegram User ID: ").strip()
+    proxy = input("  Bot Proxy (leave empty to skip): ").strip()
+
+    if not api_id or not api_hash or not token or not owner:
+        print("\n[ERR] All fields except proxy are required.")
+        sys.exit(1)
+
+    try:
+        int(api_id)
+        int(owner)
+    except ValueError:
+        print("\n[ERR] API ID and Owner must be numbers.")
+        sys.exit(1)
+
+    lines = [
+        f'api_id = {api_id}',
+        f'api_hash = "{api_hash}"',
+        f'token = "{token}"',
+        f'owner = {owner}',
+    ]
+    if proxy:
+        lines.append(f'proxy = "{proxy}"')
+
+    _CONFIG_PATH.write_text("\n".join(lines) + "\n")
+    print(f"\n[OK] Config saved to {_CONFIG_PATH}\n")
+
+    return tomllib.loads(_CONFIG_PATH.read_text())
+
+
+cfg = _read_config()
 
 ALL_PERMS = {"search", "create", "modify", "toggle", "remove", "bulk", "pdf"}
 
@@ -118,11 +174,12 @@ def _parse_proxy(url: str):
 _bot_proxy_url = cfg.get("proxy", "")
 _bot_proxy = _parse_proxy(_bot_proxy_url) if _bot_proxy_url else None
 
-bot = TelegramClient("bot", cfg["api_id"], cfg["api_hash"], proxy=_bot_proxy)
+bot = TelegramClient(str(DATA_DIR / "bot"), cfg["api_id"], cfg["api_hash"], proxy=_bot_proxy)
 
 
 # ── State ────────────────────────────────────────────────────────────────────
 
+restart_requested: int | None = None  # set to uid to restart
 states: dict[int, dict] = {}
 
 

@@ -19,6 +19,8 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Public mode** — optionally open the bot to everyone with configurable default permissions
 - **Force join** — require users to join specific channels before using the bot
 - **Multi-language** — English, Persian (فارسی), Russian (Русский) with per-user language selection; PDFs render in the user's chosen language with RTL support for Persian
+- **Backup & Restore** — download a timestamped ZIP of config + database, restore by uploading it back
+- **Restart** — restart the bot from the owner panel without touching the server
 
 ## Quick Install
 
@@ -32,63 +34,35 @@ This launches an interactive menu to install, update, or uninstall the bot. The 
 
 ```bash
 pip install -r requirements.txt
-```
-
-Copy and edit the config file:
-
-```bash
-cp config.toml.example config.toml
-```
-
-```toml
-[bot]
-api_id = 123456
-api_hash = "your_api_hash"
-token = "your_bot_token"
-# proxy = "socks5://127.0.0.1:1080"  # optional
-# public = true                       # allow everyone to use the bot
-# public_permissions = ["search", "pdf"]
-# force_join = ["@channel1", "@channel2"]
-
-[[admins]]
-id = 123456789
-permissions = ["*"]  # all permissions
-
-# [[admins]]
-# id = 987654321
-# permissions = ["search", "create", "pdf"]
-
-[[panels]]
-name = "Panel1"
-url = "https://panel1.example.com:9092/path"
-username = "admin"
-password = "secret"
-# sub_url = "https://sub.example.com/sub"  # optional
-# proxy = "socks5://127.0.0.1:1080"  # optional, proxy for panel connection
-```
-
-Run:
-
-```bash
 python bot.py
 ```
 
+On first run, the bot will prompt you for the required configuration (API ID, API Hash, Bot Token, Owner ID, and optional proxy). The config file is saved to `~/3x-bot/config.toml`. All data (config, database, session) is stored in `~/3x-bot/`.
+
+You can also create the config file manually:
+
+```toml
+api_id = 123456
+api_hash = "your_api_hash"
+token = "your_bot_token"
+owner = 123456789
+# proxy = "socks5://127.0.0.1:1080"  # optional
+```
+
+Panels and admins are managed at runtime through the bot's **Owner Panel** — no need to edit config files.
+
 ## Configuration
+
+The config file (`~/3x-bot/config.toml`) only needs 4 fields:
 
 | Field | Description |
 |-------|-------------|
 | `api_id` / `api_hash` | Telegram API credentials from [my.telegram.org](https://my.telegram.org) |
 | `token` | Bot token from [@BotFather](https://t.me/BotFather) |
-| `proxy` (bot) | Optional proxy for Telegram connection (`socks5://`, `socks4://`, `http://`) |
-| `public` | Set `true` to allow everyone to use the bot (default `false`) |
-| `public_permissions` | Permissions granted to all users in public mode |
-| `force_join` | List of channels users must join before using the bot |
-| `[[admins]]` `id` | Telegram user ID of an admin |
-| `[[admins]]` `permissions` | List of permission strings (or `["*"]` for all) |
-| `name` | Panel nickname displayed in the bot UI and PDFs |
-| `url` | 3x-ui panel URL including base path |
-| `sub_url` | Optional subscription server URL |
-| `proxy` (panel) | Optional proxy for panel API connection (`socks5://`, `http://`) |
+| `owner` | Your Telegram user ID (gets full access) |
+| `proxy` | Optional proxy for Telegram connection (`socks5://`, `socks4://`, `http://`) |
+
+Everything else (admins, panels, public mode, force-join, permissions) is managed through the **Owner Panel** in the bot UI and stored in the database.
 
 ## Permissions
 
@@ -109,7 +83,7 @@ Admins always bypass force-join checks. In public mode, non-admin users get `pub
 
 ## Language Support
 
-The bot supports **English**, **Persian (فارسی)**, and **Russian (Русский)**. Each user picks their language on first interaction, and the preference is stored in a local SQLite database (`users.db`).
+The bot supports **English**, **Persian (فارسی)**, and **Russian (Русский)**. Each user picks their language on first interaction, and the preference is stored in the database.
 
 - Language picker is shown before the force-join check on first use
 - Users can change their language anytime via the **🌐 Language** button in the main menu
@@ -123,8 +97,8 @@ To add a new language, create `translations/<code>.toml` with all the same keys 
 
 ```
 bot.py              Entry point — registers handlers and runs the bot
-config.py           Config loading, bot instance, panels, state management
-db.py               SQLite user settings (language preference)
+config.py           Config loading, interactive setup, bot instance, panels, state
+db.py               SQLite database (users, admins, panels, settings)
 i18n.py             Translation loader and t() lookup function
 helpers.py          Formatting, QR, auth, reply, client dict builder
 panel.py            3x-ui API client and proxy link generation
@@ -138,9 +112,21 @@ handlers/
 ├── create.py       Single & bulk account creation
 ├── inbounds.py     Panel sub-menu, inbound list, client list, reset/delete actions
 ├── bulk_ops.py     Bulk operations with inbound multi-select
-├── owner.py        Owner panel: manage admins, panels, settings
-└── router.py       Text input dispatcher (routes by state prefix)
+├── owner.py        Owner panel: admins, panels, settings, backup/restore, restart
+└── router.py       Text/document input dispatcher (routes by state prefix)
 ```
+
+## Data Storage
+
+All bot data is stored in `~/3x-bot/`:
+
+| File | Contents |
+|------|----------|
+| `config.toml` | API credentials, bot token, owner ID |
+| `3x-bot.db` | SQLite database (admins, panels, settings, user preferences) |
+| `bot.session` | Telethon session file |
+
+On update, the install script automatically migrates data from old locations (`/opt/3x-bot/`, `/etc/3x-bot/`).
 
 ## Requirements
 
