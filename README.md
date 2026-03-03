@@ -58,6 +58,81 @@ Each admin gets a list of permissions. Use `*` to grant all.
 
 Beyond permissions, you can restrict **which panels** and **which inbounds** each admin can see. The same restrictions are available for public mode users.
 
+## Building from Source
+
+### Automated
+
+The build script installs all dependencies (compiling Python 3.12 from source if needed) and produces a fully static binary:
+
+```bash
+git clone https://github.com/Sir-MmD/3x-bot.git && cd 3x-bot
+./build.sh
+# Output: dist/3x-bot-static
+```
+
+### Manual
+
+Requires Python 3.12 (not 3.13+ — Telethon is incompatible).
+
+**1. Install build tools**
+
+```bash
+# Debian/Ubuntu
+apt install build-essential patchelf libssl-dev zlib1g-dev \
+    libncurses-dev libffi-dev libsqlite3-dev libreadline-dev libbz2-dev
+```
+
+**2. Create venv and install packages**
+
+```bash
+python3.12 -m venv venv && source venv/bin/activate
+pip install "setuptools<82" && pip install -r requirements.txt
+pip install scons pyinstaller patchelf==0.14.5.0
+pip install --no-build-isolation staticx
+```
+
+> `setuptools<82` is required because v82 removed `pkg_resources` (used by staticx).
+> `patchelf==0.14.5.0` is pinned because v0.16+ causes [assertion errors](https://github.com/JonathonReinhart/staticx/issues/285) with staticx.
+> `--no-build-isolation` is needed on arm64 where staticx has no prebuilt wheel.
+
+**3. Strip RUNPATH from Python shared libraries**
+
+```bash
+PYTHON_LIB=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+find "$PYTHON_LIB" -name "*.so*" -exec sh -c '
+    rpath=$(patchelf --print-rpath "$1" 2>/dev/null)
+    [ -n "$rpath" ] && patchelf --remove-rpath "$1"
+' _ {} \; 2>/dev/null
+```
+
+This prevents staticx from rejecting the binary due to absolute RUNPATH entries in bundled `.so` files.
+
+**4. Build with PyInstaller**
+
+```bash
+pyinstaller 3x-bot.spec --noconfirm
+```
+
+**5. Patch RUNPATH in PyInstaller's cached libraries and rebuild**
+
+```bash
+for lib in ~/.cache/pyinstaller/bincache*/**.so*; do
+    rpath=$(patchelf --print-rpath "$lib" 2>/dev/null)
+    [ -n "$rpath" ] && patchelf --remove-rpath "$lib"
+done 2>/dev/null
+
+rm -rf build/3x-bot dist/3x-bot
+pyinstaller 3x-bot.spec --noconfirm
+```
+
+**6. Create static binary**
+
+```bash
+staticx dist/3x-bot dist/3x-bot-static
+```
+
+The output `dist/3x-bot-static` is a ~20MB fully static binary with no runtime dependencies.
+
 ## Data Storage
 
 All bot data is stored in `~/3x-bot/`:
