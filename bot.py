@@ -715,9 +715,16 @@ async def _show_search_result(event, uid: int, email: str, panel_name: str | Non
             c, ib, tr = await pc.find_client_by_email(email)
             return pname, c, ib, tr
         results = await asyncio.gather(
-            *(_search_one(pn, pc) for pn, pc in panels.items())
+            *(_search_one(pn, pc) for pn, pc in panels.items()),
+            return_exceptions=True,
         )
-        matches = [(pn, c, ib, tr) for pn, c, ib, tr in results if c is not None]
+        matches = [
+            (pn, c, ib, tr)
+            for r in results
+            if not isinstance(r, BaseException)
+            for pn, c, ib, tr in [r]
+            if c is not None
+        ]
 
         if not matches:
             await reply(

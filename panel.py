@@ -15,11 +15,17 @@ class PanelClient:
         self._logged_in = False
 
     async def _request(self, method: str, path: str, **kwargs):
-        """Make a request with auto-login and re-login on 404."""
+        """Make a request with auto-login and re-login on 404 / transport error."""
         if not self._logged_in:
             await self.login()
-        resp = await self._client.request(method, self.url + path, **kwargs)
-        if resp.status_code == 404:
+        retry = False
+        try:
+            resp = await self._client.request(method, self.url + path, **kwargs)
+            if resp.status_code == 404:
+                retry = True
+        except httpx.TransportError:
+            retry = True
+        if retry:
             await self.login()
             resp = await self._client.request(method, self.url + path, **kwargs)
         return resp.json()
