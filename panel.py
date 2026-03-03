@@ -112,6 +112,24 @@ class PanelClient:
         self.invalidate_cache()
         return data
 
+    async def reset_all_client_traffics(self, inbound_id: int):
+        data = await self._request(
+            "POST", f"/panel/api/inbounds/resetAllClientTraffics/{inbound_id}"
+        )
+        if not data.get("success"):
+            raise RuntimeError(f"resetAllClientTraffics failed: {data.get('msg')}")
+        self.invalidate_cache()
+        return data
+
+    async def delete_depleted_clients(self, inbound_id: int):
+        data = await self._request(
+            "POST", f"/panel/api/inbounds/delDepletedClients/{inbound_id}"
+        )
+        if not data.get("success"):
+            raise RuntimeError(f"delDepletedClients failed: {data.get('msg')}")
+        self.invalidate_cache()
+        return data
+
     async def find_client_by_email(self, email: str):
         """Search all inbounds for a client with matching email.
 
