@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller staticx patchelf
+
+      - name: Build with PyInstaller
+        run: pyinstaller 3x-bot.spec --noconfirm
+
+      - name: Patch RUNPATH in cached libraries
+        run: |
+          for lib in ~/.cache/pyinstaller/bincache*/**.so*; do
+            rpath=$(patchelf --print-rpath "$lib" 2>/dev/null) || true
+            if [[ -n "$rpath" ]]; then
+              patchelf --remove-rpath "$lib"
+            fi
+          done 2>/dev/null || true
+
+      - name: Rebuild with patched libraries
+        run: |
+          rm -rf build/3x-bot dist/3x-bot
+          pyinstaller 3x-bot.spec --noconfirm
+
+      - name: Create static binary
+        run: staticx dist/3x-bot dist/3x-bot-static
+
+      - name: Rename binary
+        run: mv dist/3x-bot-static dist/3x-bot-linux-${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 3x-bot-linux-${{ matrix.arch }}
+          path: dist/3x-bot-linux-${{ matrix.arch }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mv artifacts/3x-bot-linux-amd64/3x-bot-linux-amd64 .
+          mv artifacts/3x-bot-linux-arm64/3x-bot-linux-arm64 .
+          chmod +x 3x-bot-linux-amd64 3x-bot-linux-arm64
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            3x-bot-linux-amd64
+            3x-bot-linux-arm64
