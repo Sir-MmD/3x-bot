@@ -1,12 +1,16 @@
+import io
 import re
+import zipfile
+from datetime import datetime
 from urllib.parse import urlparse
 
 from telethon import events, Button
 
+import config as _config_mod
 from config import (
     st, clear, user_perms, is_owner, _count_owners,
     ALL_PERMS, owner_id, panels, register_panel, unregister_panel,
-    sub_urls,
+    sub_urls, bot, DATA_DIR, _CONFIG_PATH, load_db_panels,
 )
 from db import (
     get_db_admins, add_db_admin, remove_db_admin,
@@ -14,7 +18,9 @@ from db import (
     get_db_panel, add_db_panel, remove_db_panel,
     update_db_panel_field, rename_db_panel,
     get_setting, set_setting,
+    _lang_cache, _DB_PATH,
 )
+import db as _db_mod
 from helpers import auth, reply
 from i18n import t
 from panel import PanelClient
@@ -74,6 +80,9 @@ async def _show_owner_panel(event, uid: int):
         [Button.inline(t("btn_manage_admins", uid), b"op:admins")],
         [Button.inline(t("btn_manage_panels", uid), b"op:panels")],
         [Button.inline(t("btn_settings", uid), b"op:set")],
+        [Button.inline(t("btn_backup", uid), b"op:bk"),
+         Button.inline(t("btn_restore", uid), b"op:rs")],
+        [Button.inline(t("btn_restart", uid), b"op:restart")],
         [Button.inline(t("btn_back", uid), b"m")],
     ]
     await reply(event, t("op_title", uid), buttons=btns)
@@ -304,6 +313,66 @@ async def handle_owner_input(event) -> bool:
     if state == "op_fj":
         return await _handle_force_join_input(event, uid, s)
     return False
+
+
+async def handle_owner_restore(event) -> bool:
+    """Handle uploaded ZIP file for restore (state=op_rs)."""
+    uid = event.sender_id
+    s = st(uid)
+    if s.get("state") != "op_rs":
+        return False
+    if not is_owner(uid):
+        return False
+
+    doc = event.message.document
+    if not doc:
+        return False
+
+    name = event.message.file.name or ""
+    if not name.lower().endswith(".zip"):
+        await event.respond(t("restore_invalid_zip", uid),
+                            buttons=_back_btn(uid, b"op"))
+        return True
+
+    buf = io.BytesIO()
+    await bot.download_media(event.message, buf)
+    buf.seek(0)
+
+    try:
+        zf = zipfile.ZipFile(buf)
+    except zipfile.BadZipFile:
+        await event.respond(t("restore_invalid_zip", uid),
+                            buttons=_back_btn(uid, b"op"))
+        return True
+
+    names = zf.namelist()
+    if "config.toml" not in names or "3x-bot.db" not in names:
+        zf.close()
+        await event.respond(t("restore_missing_files", uid),
+                            buttons=_back_btn(uid, b"op"))
+        return True
+
+    # Extract files to DATA_DIR
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    zf.extract("config.toml", DATA_DIR)
+    zf.extract("3x-bot.db", DATA_DIR)
+    zf.close()
+
+    # Invalidate all caches
+    _db_mod._admins_cache = None
+    _db_mod._panels_cache = None
+    _db_mod._settings_cache = None
+    _db_mod._lang_cache.clear()
+
+    # Reload panels
+    load_db_panels()
+
+    clear(uid)
+    await event.respond(
+        t("restore_success", uid) + "\n" + t("restore_restart_note", uid),
+        buttons=_back_btn(uid, b"op"),
+    )
+    return True
 
 
 async def _handle_add_admin_uid(event, uid, s):
@@ -926,3 +995,55 @@ def register(bot):
         s["state"] = "op_fj"
         await reply(event, t("op_force_join_prompt", uid),
                     buttons=_back_btn(uid, b"op:set"))
+
+    # ── Backup / Restore ──────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"op:bk"))
+    @auth
+    @_require_owner
+    async def cb_backup(event):
+        uid = event.sender_id
+        now = datetime.now()
+        stamp = now.strftime("%Y-%m-%d_%H-%M")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            cfg_path = _CONFIG_PATH
+            db_path = _DB_PATH
+            if cfg_path.exists():
+                zf.write(cfg_path, "config.toml")
+            if DATA_DIR.joinpath("3x-bot.db").exists():
+                zf.write(db_path, "3x-bot.db")
+        buf.seek(0)
+        buf.name = f"3x-bot-backup-{stamp}.zip"
+        caption = t("backup_caption", uid, date=now.strftime("%Y/%m/%d"), time=now.strftime("%H:%M"))
+        await bot.send_file(event.chat_id, buf, caption=caption)
+
+    @bot.on(events.CallbackQuery(data=b"op:rs"))
+    @auth
+    @_require_owner
+    async def cb_restore_prompt(event):
+        uid = event.sender_id
+        s = st(uid)
+        s["state"] = "op_rs"
+        await reply(event, t("restore_prompt", uid),
+                    buttons=_back_btn(uid, b"op"))
+
+    @bot.on(events.CallbackQuery(data=b"op:restart"))
+    @auth
+    @_require_owner
+    async def cb_restart_confirm(event):
+        uid = event.sender_id
+        btns = [
+            [Button.inline(t("btn_yes_restart", uid), b"op:restartc")],
+            [Button.inline(t("btn_cancel", uid), b"op")],
+        ]
+        await reply(event, t("confirm_restart", uid), buttons=btns)
+
+    @bot.on(events.CallbackQuery(data=b"op:restartc"))
+    @auth
+    @_require_owner
+    async def cb_restart_execute(event):
+        uid = event.sender_id
+        await event.respond(t("restarting", uid))
+        _config_mod.restart_requested = uid
+        await bot.disconnect()

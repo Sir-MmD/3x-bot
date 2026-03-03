@@ -1,7 +1,8 @@
 import sqlite3
 import time
+from pathlib import Path
 
-_DB_PATH = "users.db"
+_DB_PATH = str(Path.home() / "3x-bot" / "3x-bot.db")
 _lang_cache: dict[int, str] = {}
 _admins_cache: dict[int, tuple[set[str], bool]] | None = None
 _panels_cache: list[dict] | None = None
