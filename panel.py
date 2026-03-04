@@ -15,6 +15,9 @@ class PanelClient:
         self.username = username
         self.password = password
         self.name = name
+        # Normalize socks:// to socks5:// for httpx
+        if proxy and proxy.lower().startswith("socks://"):
+            proxy = "socks5://" + proxy[8:]
         self._client = httpx.AsyncClient(verify=False, timeout=30, proxy=proxy or None)
         self._logged_in = False
         self._login_lock = asyncio.Lock()
