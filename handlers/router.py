@@ -59,9 +59,14 @@ def _extract_email_from_link(text: str) -> str | None:
         fragment = text.split("#", 1)[1] if "#" in text else ""
         tag = unquote(fragment)
 
-    if not tag or "-" not in tag:
+    if not tag:
         return None
-    return tag.rsplit("-", 1)[-1]
+    # Format: {email}@{remark} (3x-ui panel) or {remark}-{email} (bot-generated)
+    if "@" in tag:
+        return tag.split("@", 1)[0]
+    if "-" in tag:
+        return tag.rsplit("-", 1)[-1]
+    return tag
 
 
 def register(bot):

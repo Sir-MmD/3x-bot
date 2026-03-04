@@ -15,8 +15,8 @@ jobs:
         include:
           - runner: ubuntu-latest
             arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
+          # - runner: ubuntu-24.04-arm
+          #   arch: arm64
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -93,8 +93,7 @@ jobs:
       - name: Prepare release files
         run: |
           mv artifacts/3x-bot-linux-amd64/3x-bot-linux-amd64 .
-          mv artifacts/3x-bot-linux-arm64/3x-bot-linux-arm64 .
-          chmod +x 3x-bot-linux-amd64 3x-bot-linux-arm64
+          chmod +x 3x-bot-linux-amd64
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -102,4 +101,3 @@ jobs:
           prerelease: true
           files: |
             3x-bot-linux-amd64
-            3x-bot-linux-arm64
