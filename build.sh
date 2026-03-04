@@ -146,6 +146,15 @@ strip_runpaths() {
         rpath=$(patchelf --print-rpath "$1" 2>/dev/null)
         [ -n "$rpath" ] && patchelf --remove-rpath "$1"
     ' _ {} \; 2>/dev/null || true
+
+    info "Stripping RUNPATH from all site-packages shared libraries..."
+    local site_pkgs
+    site_pkgs=$(python -c "import site; print(site.getsitepackages()[0])")
+
+    find "$site_pkgs" -name "*.so*" -exec sh -c '
+        rpath=$(patchelf --print-rpath "$1" 2>/dev/null)
+        [ -n "$rpath" ] && patchelf --remove-rpath "$1"
+    ' _ {} \; 2>/dev/null || true
 }
 
 # ── Build pipeline ───────────────────────────────────────────────────

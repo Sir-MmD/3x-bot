@@ -31,10 +31,19 @@ jobs:
           pip install scons pyinstaller patchelf==0.14.5.0
           pip install --no-build-isolation staticx
 
-      - name: Strip RUNPATH from Python stdlib shared libraries
+      - name: Strip RUNPATH from all shared libraries
         run: |
+          # Python stdlib .so files (setup-python sets absolute RUNPATH)
           PYTHON_LIB=$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
           find "$PYTHON_LIB" -name "*.so*" -exec sh -c '
+            rpath=$(patchelf --print-rpath "$1" 2>/dev/null)
+            [ -n "$rpath" ] && patchelf --remove-rpath "$1"
+          ' _ {} \; 2>/dev/null || true
+
+          # ALL .so files in site-packages (vendored .libs/, native extensions, etc.)
+          # Covers: Pillow.libs, cryptography.libs, uharfbuzz, cffi, and any future deps
+          SITE_PKGS=$(python -c "import site; print(site.getsitepackages()[0])")
+          find "$SITE_PKGS" -name "*.so*" -exec sh -c '
             rpath=$(patchelf --print-rpath "$1" 2>/dev/null)
             [ -n "$rpath" ] && patchelf --remove-rpath "$1"
           ' _ {} \; 2>/dev/null || true
@@ -87,6 +96,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: true
           files: |
             3x-bot-linux-amd64
             3x-bot-linux-arm64
