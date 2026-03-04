@@ -484,6 +484,16 @@ def get_profile_updated_at(uid: int) -> float:
 # ── Activity Log ─────────────────────────────────────────────────────────────
 
 def log_activity(uid: int, action: str, detail: str = ""):
+    lang = _lang_cache.get(uid) or get_user_lang(uid) or ""
+    if detail:
+        try:
+            d = json.loads(detail)
+            d["lang"] = lang
+            detail = json.dumps(d)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    else:
+        detail = json.dumps({"lang": lang})
     con = sqlite3.connect(_DB_PATH)
     con.execute(
         "INSERT INTO activity_log (user_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
