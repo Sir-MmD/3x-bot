@@ -202,7 +202,11 @@ def auth(func_or_perm=None, *extra_perms):
             if not await _check_force_join(event, uid):
                 return
             await _maybe_update_profile(event, uid)
-            return await func(event)
+            try:
+                return await func(event)
+            except RuntimeError as e:
+                await reply(event, t("error_msg", uid, error=e),
+                            buttons=[[Button.inline(t("btn_back", uid), b"m")]])
         return wrapper
 
     # @auth("perm") or @auth("perm1", "perm2") with parentheses
@@ -218,7 +222,11 @@ def auth(func_or_perm=None, *extra_perms):
             if not await _check_force_join(event, uid):
                 return
             await _maybe_update_profile(event, uid)
-            return await func(event)
+            try:
+                return await func(event)
+            except RuntimeError as e:
+                await reply(event, t("error_msg", uid, error=e),
+                            buttons=[[Button.inline(t("btn_back", uid), b"m")]])
         return wrapper
     return decorator
 

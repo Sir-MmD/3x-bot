@@ -15,7 +15,7 @@ class PanelClient:
         self.username = username
         self.password = password
         self.name = name
-        self._client = httpx.AsyncClient(verify=False, timeout=15, proxy=proxy or None)
+        self._client = httpx.AsyncClient(verify=False, timeout=30, proxy=proxy or None)
         self._logged_in = False
         self._login_lock = asyncio.Lock()
         self._inbounds_cache: list[dict] | None = None
@@ -34,7 +34,10 @@ class PanelClient:
             retry = True
         if retry:
             await self._do_login()
-            resp = await self._client.request(method, self.url + path, **kwargs)
+            try:
+                resp = await self._client.request(method, self.url + path, **kwargs)
+            except httpx.TransportError as e:
+                raise RuntimeError(f"Panel unreachable: {e}")
         return resp.json()
 
     async def _do_login(self):
@@ -43,10 +46,14 @@ class PanelClient:
             await self.login()
 
     async def login(self):
-        resp = await self._client.post(
-            self.url + "/login",
-            json={"username": self.username, "password": self.password},
-        )
+        try:
+            resp = await self._client.post(
+                self.url + "/login",
+                json={"username": self.username, "password": self.password},
+            )
+        except httpx.TransportError as e:
+            self._logged_in = False
+            raise RuntimeError(f"Panel unreachable: {e}")
         data = resp.json()
         if not data.get("success"):
             raise RuntimeError(f"Login failed: {data.get('msg')}")
