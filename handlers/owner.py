@@ -307,6 +307,12 @@ async def _show_settings(event, uid: int):
     else:
         lines.append(t("op_force_join_none", uid))
 
+    rl = get_setting("search_rate_limit")
+    if rl:
+        lines.append(t("op_rate_limit_label", uid, value=rl))
+    else:
+        lines.append(t("op_rate_limit_none", uid))
+
     btns = [
         [Button.inline(t("btn_toggle_public", uid), b"op:tpm")],
     ]
@@ -315,6 +321,7 @@ async def _show_settings(event, uid: int):
         btns.append([Button.inline(t("btn_edit_public_panels", uid), b"op:eppp")])
         btns.append([Button.inline(t("btn_edit_public_inbounds", uid), b"op:eppi")])
     btns.append([Button.inline(t("btn_edit_force_join", uid), b"op:efj")])
+    btns.append([Button.inline(t("btn_edit_rate_limit", uid), b"op:erl")])
     btns.append([Button.inline(t("btn_back", uid), b"op")])
     await reply(event, "\n".join(lines), buttons=btns)
 
@@ -537,6 +544,8 @@ async def handle_owner_input(event) -> bool:
         return await _handle_panel_edit(event, uid, s)
     if state == "op_fj":
         return await _handle_force_join_input(event, uid, s)
+    if state == "op_rl":
+        return await _handle_rate_limit_input(event, uid, s)
     return False
 
 
@@ -733,6 +742,39 @@ async def _handle_force_join_input(event, uid, s):
     clear(uid)
     await event.respond(
         t("op_force_join_saved", uid),
+        buttons=_back_btn(uid, b"op:set"),
+    )
+    return True
+
+
+async def _handle_rate_limit_input(event, uid, s):
+    text = event.text.strip()
+    if text == "-":
+        set_setting("search_rate_limit", "")
+    else:
+        parts = text.split(",")
+        if len(parts) != 2:
+            await event.respond(
+                t("op_rate_limit_invalid", uid),
+                buttons=_back_btn(uid, b"op:set"),
+            )
+            return True
+        try:
+            count = int(parts[0].strip())
+            window = int(parts[1].strip())
+            if count <= 0 or window <= 0:
+                raise ValueError
+        except ValueError:
+            await event.respond(
+                t("op_rate_limit_invalid", uid),
+                buttons=_back_btn(uid, b"op:set"),
+            )
+            return True
+        set_setting("search_rate_limit", f"{count},{window}")
+    log_activity(uid, "edit_rate_limit", json.dumps({"value": text}))
+    clear(uid)
+    await event.respond(
+        t("op_rate_limit_saved", uid),
         buttons=_back_btn(uid, b"op:set"),
     )
     return True
@@ -1588,6 +1630,16 @@ def register(bot):
         s = st(uid)
         s["state"] = "op_fj"
         await reply(event, t("op_force_join_prompt", uid),
+                    buttons=_back_btn(uid, b"op:set"))
+
+    @bot.on(events.CallbackQuery(data=b"op:erl"))
+    @auth
+    @_require_owner
+    async def cb_edit_rate_limit(event):
+        uid = event.sender_id
+        s = st(uid)
+        s["state"] = "op_rl"
+        await reply(event, t("op_rate_limit_prompt", uid),
                     buttons=_back_btn(uid, b"op:set"))
 
     # ── Backup / Restore ──────────────────────────────────────────────

@@ -67,7 +67,7 @@ def _read_config() -> dict:
 
 cfg = _read_config()
 
-ALL_PERMS = {"search", "create", "modify", "toggle", "remove", "bulk", "pdf"}
+ALL_PERMS = {"search", "search_simple", "create", "modify", "toggle", "remove", "bulk", "pdf"}
 
 owner_id: int = cfg["owner"]
 

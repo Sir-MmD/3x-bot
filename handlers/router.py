@@ -1,11 +1,13 @@
 import json
 import re
+import time
 from base64 import b64decode
 from urllib.parse import unquote
 
 from telethon import events, Button
 
-from config import st, has_perm
+from config import st, has_perm, is_owner
+from db import get_db_admins, get_setting
 from helpers import auth
 from i18n import t
 from handlers.search import show_search_result
@@ -13,6 +15,42 @@ from handlers.modify import handle_modify_traffic_input, handle_modify_days_inpu
 from handlers.create import handle_create_input, handle_bulk_create_input
 from handlers.bulk_ops import handle_bulk_op_input
 from handlers.owner import handle_owner_input, handle_owner_restore
+
+# ── Rate limit tracker ────────────────────────────────────────────────────────
+_search_times: dict[int, list[float]] = {}
+
+
+def _check_rate_limit(uid: int) -> int:
+    """Check if a public user is rate-limited. Returns seconds to wait, or 0."""
+    if is_owner(uid) or uid in get_db_admins():
+        return 0
+    raw = get_setting("search_rate_limit")
+    if not raw:
+        return 0
+    parts = raw.split(",")
+    if len(parts) != 2:
+        return 0
+    try:
+        count = int(parts[0])
+        window = int(parts[1])
+    except ValueError:
+        return 0
+    if count <= 0 or window <= 0:
+        return 0
+    now = time.time()
+    times = _search_times.get(uid, [])
+    # Prune old entries
+    times = [t for t in times if now - t < window]
+    _search_times[uid] = times
+    if len(times) >= count:
+        wait = int(window - (now - times[0])) + 1
+        return max(wait, 1)
+    return 0
+
+
+def _record_search(uid: int):
+    """Record a search timestamp for rate limiting."""
+    _search_times.setdefault(uid, []).append(time.time())
 
 _PROXY_LINK_RE = re.compile(r"^(vless|vmess|trojan|ss)://", re.IGNORECASE)
 
@@ -116,8 +154,20 @@ def register(bot):
                 return
 
         # ── Default: search ──────────────────────────────────────────────
-        if not has_perm(uid, "search"):
+        if not (has_perm(uid, "search") or has_perm(uid, "search_simple")):
             return
+        # Rate limit for public users
+        wait = _check_rate_limit(uid)
+        if wait > 0:
+            msg = await event.respond(t("rate_limit_wait", uid, seconds=wait))
+            try:
+                import asyncio
+                await asyncio.sleep(5)
+                await msg.delete()
+            except Exception:
+                pass
+            return
+        _record_search(uid)
         email = _extract_email_from_link(event.text) or event.text.strip()
         searching_msg = await event.respond(t("searching", uid))
         try:
