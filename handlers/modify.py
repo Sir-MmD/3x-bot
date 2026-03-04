@@ -5,7 +5,7 @@ from telethon import events, Button
 
 from config import get_panel, st
 from db import log_activity
-from helpers import format_bytes, format_expiry, auth, reply
+from helpers import format_bytes, format_expiry, auth, reply, answer
 from i18n import t
 from handlers.search import show_search_result
 
@@ -294,9 +294,9 @@ def register(bot):
         try:
             await p.reset_client_traffic(iid, email)
             log_activity(uid, "modify_traffic_reset", json.dumps({"email": email, "panel": pid}))
-            await event.answer(t("mt_reset_success", uid))
+            await answer(event,t("mt_reset_success", uid))
         except RuntimeError as e:
-            await event.answer(f"Error: {e}", alert=True)
+            await answer(event,f"Error: {e}", alert=True)
         await show_search_result(event, uid, email, panel_name=pid)
 
     @bot.on(events.CallbackQuery(data=b"mta"))
@@ -406,7 +406,7 @@ def register(bot):
         try:
             await p.update_client(s["sr_cid"], s["sr_iid"], s["sr_client"])
             log_activity(uid, "modify_days_edit", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"], "days": days}))
-            await event.answer(t("md_edit_success", uid))
+            await answer(event,t("md_edit_success", uid))
         except RuntimeError as e:
-            await event.answer(f"Error: {e}", alert=True)
+            await answer(event,f"Error: {e}", alert=True)
         await show_search_result(event, uid, s["sr_email"], panel_name=s["sr_pid"])

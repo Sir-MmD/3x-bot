@@ -3,7 +3,7 @@ from telethon import events
 from config import clear, user_perms
 from db import set_user_lang, get_user_lang
 from i18n import t, LANGUAGES
-from helpers import auth, reply, main_menu_buttons, main_menu_text, _check_force_join, _lang_picker_buttons
+from helpers import auth, reply, answer, main_menu_buttons, main_menu_text, _check_force_join, _lang_picker_buttons
 
 
 def register(bot):
@@ -27,7 +27,7 @@ def register(bot):
         if not user_perms(uid):
             return
         if not await _check_force_join(event, uid, silent=True):
-            await event.answer(t("force_join_not_joined", uid), alert=True)
+            await answer(event,t("force_join_not_joined", uid), alert=True)
             return
         clear(uid)
         await reply(event, main_menu_text(uid), buttons=main_menu_buttons(uid))

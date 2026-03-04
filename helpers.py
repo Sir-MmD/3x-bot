@@ -231,6 +231,16 @@ def auth(func_or_perm=None, *extra_perms):
     return decorator
 
 
+# ── Safe answer ──────────────────────────────────────────────────────────────
+
+async def answer(event, *args, **kwargs):
+    """Wrapper around event.answer() that silently ignores expired query IDs."""
+    try:
+        await event.answer(*args, **kwargs)
+    except Exception:
+        pass
+
+
 # ── Reply ────────────────────────────────────────────────────────────────────
 
 async def reply(event, text, buttons=None, file=None):
