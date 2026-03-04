@@ -132,7 +132,8 @@ async def handle_modify_days_input(event):
                 t("start_after_use_prompt", uid),
                 buttons=[
                     [Button.inline(t("btn_yes", uid), b"mdsa:y"), Button.inline(t("btn_no", uid), b"mdsa:n")],
-                    [Button.inline(t("btn_back", uid), b"sr")],
+                    [Button.inline(t("btn_back", uid), b"sr"),
+                     Button.inline(t("btn_main_menu", uid), b"m")],
                 ],
             )
         return True
@@ -249,7 +250,8 @@ def register(bot):
                     Button.inline(t("btn_add_more", uid), b"mta"),
                     Button.inline(t("btn_less", uid), b"mts"),
                 ],
-                [Button.inline(t("btn_back", uid), b"sr")],
+                [Button.inline(t("btn_back", uid), b"sr"),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
             ],
         )
 
@@ -262,7 +264,8 @@ def register(bot):
         await reply(
             event,
             t("mt_edit_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), b"mt")]],
+            buttons=[[Button.inline(t("btn_back", uid), b"mt"),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(data=b"mtr"))
@@ -308,7 +311,8 @@ def register(bot):
         await reply(
             event,
             t("mt_add_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), b"mt")]],
+            buttons=[[Button.inline(t("btn_back", uid), b"mt"),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(data=b"mts"))
@@ -320,7 +324,8 @@ def register(bot):
         await reply(
             event,
             t("mt_sub_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), b"mt")]],
+            buttons=[[Button.inline(t("btn_back", uid), b"mt"),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     # ── Modify Days ──────────────────────────────────────────────────────
@@ -350,7 +355,8 @@ def register(bot):
                     Button.inline(t("btn_add_more", uid), b"mda"),
                     Button.inline(t("btn_less", uid), b"mds"),
                 ],
-                [Button.inline(t("btn_back", uid), b"sr")],
+                [Button.inline(t("btn_back", uid), b"sr"),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
             ],
         )
 
@@ -363,7 +369,8 @@ def register(bot):
         await reply(
             event,
             t("md_edit_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), b"md")]],
+            buttons=[[Button.inline(t("btn_back", uid), b"md"),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(data=b"mda"))
@@ -375,7 +382,8 @@ def register(bot):
         await reply(
             event,
             t("md_add_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), b"md")]],
+            buttons=[[Button.inline(t("btn_back", uid), b"md"),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(data=b"mds"))
@@ -387,7 +395,8 @@ def register(bot):
         await reply(
             event,
             t("md_sub_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), b"md")]],
+            buttons=[[Button.inline(t("btn_back", uid), b"md"),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^mdsa:([yn])$"))

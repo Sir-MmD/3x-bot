@@ -8,13 +8,13 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Search** — find clients by email across all panels
 - **Create accounts** — single or bulk (up to 100), with flexible naming schemes
 - **Manage clients** — enable/disable, modify traffic & duration, reset usage, remove
-- **Client list** — paginated view of all clients per inbound with stats
-- **Bulk operations** — add/subtract days or traffic with multi-select inbound filter
+- **Client list** — paginated view of all clients per inbound with detailed inbound info header (protocol, transport, security, user stats, traffic)
+- **Bulk operations** — add/subtract days or traffic across multiple panels with multi-select panel and inbound filter, accessible from main menu
 - **PDF export** — account details with QR codes and subscription links
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
 - **Per-admin permissions** — restrict each admin to specific operations, panels, and inbounds
 - **Public mode** — optionally open the bot to everyone with configurable permissions
-- **Force join** — require users to join specific channels before using the bot
+- **Force join** — require users to join channels (public or private) with interactive channel manager
 - **Multi-language** — English, Persian, Russian with per-user selection and RTL PDF support
 - **Activity logging** — audit trail of all user actions (search, create, modify, remove, bulk ops, admin changes) with timestamps
 - **Admin display names** — admin list shows Telegram names alongside user IDs

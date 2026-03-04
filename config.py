@@ -3,6 +3,9 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
 
+VERSION = "0.5.0"
+AUTHOR = "Sir.MmD"
+
 import socks
 from telethon import TelegramClient
 
@@ -206,6 +209,26 @@ def load_db_panels():
         )
 
 
+def reload_panels():
+    """Re-populate panels dict in DB sort order (dict preserves insertion order)."""
+    from db import get_db_panels
+    old = dict(panels)
+    panels.clear()
+    server_addrs.clear()
+    sub_urls.clear()
+    for p in get_db_panels():
+        name = p["name"]
+        if name in old:
+            panels[name] = old[name]
+            server_addrs[name] = urlparse(p["url"]).hostname
+            sub_urls[name] = p.get("sub_url", "").rstrip("/") or None
+        else:
+            register_panel(
+                name, p["url"], p["username"], p["password"],
+                p.get("proxy", ""), p.get("sub_url", ""),
+            )
+
+
 # ── Bot ──────────────────────────────────────────────────────────────────────
 
 _proxy_types = {"socks5": socks.SOCKS5, "socks4": socks.SOCKS4, "http": socks.HTTP}
@@ -238,3 +261,68 @@ def st(uid: int) -> dict:
 
 def clear(uid: int):
     states.pop(uid, None)
+
+
+# ── Auto-Backup ─────────────────────────────────────────────────────────────
+
+import asyncio
+
+_auto_backup_task: asyncio.Task | None = None
+
+
+def _get_owner_uids() -> list[int]:
+    """Return all owner user IDs (config owner + DB owners)."""
+    from db import get_db_admins
+    uids = [owner_id]
+    for uid, (_perms, _is_owner, _panels, _ib) in get_db_admins().items():
+        if _is_owner and uid != owner_id:
+            uids.append(uid)
+    return uids
+
+
+async def _auto_backup_loop(interval: int):
+    """Background loop that sends backups to all owners every `interval` seconds."""
+    import io
+    import zipfile
+    from datetime import datetime
+    from i18n import t
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            now = datetime.now()
+            stamp = now.strftime("%Y-%m-%d_%H-%M")
+            buf = io.BytesIO()
+            db_path = DATA_DIR / "3x-bot.db"
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                if _CONFIG_PATH.exists():
+                    zf.write(_CONFIG_PATH, "config.toml")
+                if db_path.exists():
+                    zf.write(db_path, "3x-bot.db")
+            buf.seek(0)
+            buf.name = f"3x-bot-backup-{stamp}.zip"
+            caption = t("auto_backup_caption", 0,
+                        date=now.strftime("%Y/%m/%d"),
+                        time=now.strftime("%H:%M"))
+            for uid in _get_owner_uids():
+                try:
+                    buf.seek(0)
+                    await bot.send_file(uid, buf, caption=caption)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
+def start_auto_backup(interval: int):
+    """Start or restart the auto-backup background task."""
+    global _auto_backup_task
+    stop_auto_backup()
+    _auto_backup_task = asyncio.ensure_future(_auto_backup_loop(interval))
+
+
+def stop_auto_backup():
+    """Cancel the auto-backup task if running."""
+    global _auto_backup_task
+    if _auto_backup_task is not None:
+        _auto_backup_task.cancel()
+        _auto_backup_task = None

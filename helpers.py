@@ -7,8 +7,11 @@ import uuid
 from base64 import b64encode
 
 import qrcode
+import re
+
 from telethon import events, Button
 from telethon.tl.functions.channels import GetParticipantRequest
+from telethon.tl.functions.messages import CheckChatInviteRequest
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.errors import UserNotParticipantError
 
@@ -98,6 +101,15 @@ _fj_cache: dict[tuple[int, str], float] = {}  # (uid, channel) → expiry timest
 _FJ_TTL = 300  # 5 minutes
 
 
+_INVITE_HASH_RE = re.compile(r"(?:https?://)?t\.me/(?:\+|joinchat/)(.+)")
+
+
+def _extract_invite_hash(entry: str) -> str | None:
+    """Extract invite hash from a private channel link, or None if public."""
+    m = _INVITE_HASH_RE.match(entry)
+    return m.group(1) if m else None
+
+
 async def _check_force_join(event, uid: int, silent: bool = False) -> bool:
     channels = get_force_join()
     if not channels:
@@ -110,16 +122,41 @@ async def _check_force_join(event, uid: int, silent: bool = False) -> bool:
         key = (uid, ch)
         if _fj_cache.get(key, 0) > now:
             continue
-        try:
-            await bot(GetParticipantRequest(ch, uid))
-            _fj_cache[key] = now + _FJ_TTL
-        except UserNotParticipantError:
-            missing.append(ch)
-        except Exception:
-            missing.append(ch)
+        invite_hash = _extract_invite_hash(ch)
+        if invite_hash:
+            # Private channel — resolve via invite, then check participant
+            try:
+                invite_info = await bot(CheckChatInviteRequest(invite_hash))
+                # ChatInviteAlready means the bot is a member; get channel from it
+                channel = getattr(invite_info, "chat", None)
+                if channel:
+                    await bot(GetParticipantRequest(channel, uid))
+                    _fj_cache[key] = now + _FJ_TTL
+                else:
+                    missing.append(ch)
+            except UserNotParticipantError:
+                missing.append(ch)
+            except Exception:
+                missing.append(ch)
+        else:
+            # Public channel
+            try:
+                await bot(GetParticipantRequest(ch, uid))
+                _fj_cache[key] = now + _FJ_TTL
+            except UserNotParticipantError:
+                missing.append(ch)
+            except Exception:
+                missing.append(ch)
     if missing:
         if not silent:
-            btns = [[Button.url(t("btn_join_channel", uid, channel=ch), f"https://t.me/{ch.lstrip('@')}")] for ch in missing]
+            btns = []
+            for ch in missing:
+                if _extract_invite_hash(ch):
+                    # Private — use stored invite link as join URL
+                    url = ch if ch.startswith("http") else f"https://{ch}"
+                    btns.append([Button.url(t("btn_join_channel", uid, channel="Private"), url)])
+                else:
+                    btns.append([Button.url(t("btn_join_channel", uid, channel=ch), f"https://t.me/{ch.lstrip('@')}")])
             btns.append([Button.inline(t("btn_ive_joined", uid), b"fj")])
             await reply(event, t("force_join_msg", uid), buttons=btns)
         return False
@@ -322,6 +359,8 @@ def main_menu_buttons(uid: int):
     if perms & {"create", "bulk"}:
         for name in visible_panels(uid):
             btns.append([Button.inline(t("btn_panel", uid, name=name), f"pm:{name}".encode())])
+    if has_perm(uid, "bulk"):
+        btns.append([Button.inline(t("btn_bulk_ops_main", uid), b"bom_start")])
     if "owner" in perms:
         btns.append([Button.inline(t("btn_owner_panel", uid), b"op")])
     btns.append([Button.inline(t("btn_language", uid), b"cl")])

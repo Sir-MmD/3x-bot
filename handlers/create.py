@@ -7,10 +7,10 @@ from config import get_panel, st, clear, server_addrs, sub_urls, bot, user_inbou
 from db import log_activity
 from helpers import (
     format_bytes, format_expiry, rand_email, generate_bulk_emails,
-    make_qr, auth, reply, build_client_dict,
+    make_qr, auth, reply, answer, build_client_dict,
 )
 from i18n import t
-from panel import build_client_link
+from panel import build_client_link, SUPPORTED_PROTOCOLS
 from pdf_export import generate_account_pdf
 
 
@@ -26,7 +26,8 @@ async def _create_client(event, uid: int):
     if not inbound:
         await reply(
             event, t("inbound_not_found", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"il:{panel_name}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
         return
 
@@ -58,7 +59,8 @@ async def _create_client(event, uid: int):
         await reply(
             event,
             t("create_error", uid, error=e),
-            buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
         return
 
@@ -86,7 +88,8 @@ async def _create_client(event, uid: int):
         lines += ["", f"`{proxy_link}`"]
     text = "\n".join(lines)
     back_data = f"ib:{panel_name}:{iid}".encode()
-    btns = [[Button.inline(t("btn_back", uid), back_data)]]
+    btns = [[Button.inline(t("btn_back", uid), back_data),
+             Button.inline(t("btn_main_menu", uid), b"m")]]
     clear(uid)
 
     if proxy_link:
@@ -124,7 +127,8 @@ async def _bulk_create_clients(event, uid: int):
     if not inbound:
         await reply(
             event, t("inbound_not_found", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"il:{panel_name}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
         return
 
@@ -220,7 +224,8 @@ async def _bulk_create_clients(event, uid: int):
     text = "\n".join(lines)
     back_data = f"ib:{panel_name}:{iid}".encode()
     await bot.send_message(
-        event.chat_id, text, buttons=[[Button.inline(t("btn_back", uid), back_data)]],
+        event.chat_id, text, buttons=[[Button.inline(t("btn_back", uid), back_data),
+                                       Button.inline(t("btn_main_menu", uid), b"m")]],
         parse_mode="md",
     )
 
@@ -249,7 +254,8 @@ async def handle_create_input(event):
         s["state"] = "cr_traffic"
         await event.respond(
             t("enter_traffic_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
         return True
 
@@ -265,7 +271,8 @@ async def handle_create_input(event):
         s["state"] = "cr_duration"
         await event.respond(
             t("enter_duration_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
         return True
 
@@ -284,7 +291,8 @@ async def handle_create_input(event):
                 t("start_after_use_prompt", uid),
                 buttons=[
                     [Button.inline(t("btn_yes", uid), b"sau:y"), Button.inline(t("btn_no", uid), b"sau:n")],
-                    [Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())],
+                    [Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode()),
+                     Button.inline(t("btn_main_menu", uid), b"m")],
                 ],
             )
         else:
@@ -330,7 +338,8 @@ async def handle_bulk_create_input(event):
                     Button.inline(t("btn_prefix_num", uid), b"bkn:pn"),
                     Button.inline(t("btn_prefix_num_post", uid), b"bkn:pnx"),
                 ],
-                [Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())],
+                [Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
             ],
         )
         return True
@@ -349,7 +358,8 @@ async def handle_bulk_create_input(event):
             s["state"] = "bk_postfix"
             await event.respond(
                 t("enter_postfix_prompt", uid, prefix=prefix),
-                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
             )
         else:
             s["bk"]["emails"] = generate_bulk_emails(method, s["bk"]["count"], prefix=prefix)
@@ -358,7 +368,8 @@ async def handle_bulk_create_input(event):
             ellipsis = "..." if s["bk"]["count"] > 3 else ""
             await event.respond(
                 t("bulk_preview", uid, sample=sample, ellipsis=ellipsis),
-                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
                 parse_mode="md",
             )
         return True
@@ -379,7 +390,8 @@ async def handle_bulk_create_input(event):
         ellipsis = "..." if s["bk"]["count"] > 3 else ""
         await event.respond(
             t("bulk_preview", uid, sample=sample, ellipsis=ellipsis),
-            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
             parse_mode="md",
         )
         return True
@@ -400,7 +412,8 @@ async def handle_bulk_create_input(event):
         s["state"] = "bk_traffic"
         await event.respond(
             t("bulk_emails_received", uid, count=len(emails)),
-            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
         return True
 
@@ -416,7 +429,8 @@ async def handle_bulk_create_input(event):
         s["state"] = "bk_duration"
         await event.respond(
             t("enter_duration_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
         return True
 
@@ -435,7 +449,8 @@ async def handle_bulk_create_input(event):
                 t("start_after_use_prompt", uid),
                 buttons=[
                     [Button.inline(t("btn_yes", uid), b"bksa:y"), Button.inline(t("btn_no", uid), b"bksa:n")],
-                    [Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())],
+                    [Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
                 ],
             )
         else:
@@ -447,6 +462,16 @@ async def handle_bulk_create_input(event):
 
 
 def register(bot):
+    async def _check_protocol(event, uid, panel_name, iid):
+        """Return True if the inbound protocol is supported, else alert."""
+        p = get_panel(panel_name)
+        inbounds = await p.list_inbounds()
+        inbound = next((ib for ib in inbounds if ib["id"] == iid), None)
+        if inbound and inbound["protocol"] not in SUPPORTED_PROTOCOLS:
+            await answer(event, t("unsupported_protocol_short", uid, protocol=inbound["protocol"]), alert=True)
+            return False
+        return True
+
     @bot.on(events.CallbackQuery(pattern=rb"^ca:(.+):(\d+)$"))
     @auth("create")
     async def cb_create_start(event):
@@ -455,6 +480,8 @@ def register(bot):
         iid = int(event.pattern_match.group(2))
         allowed = user_inbounds(uid, panel_name)
         if allowed is not None and iid not in allowed:
+            return
+        if not await _check_protocol(event, uid, panel_name, iid):
             return
         s = st(uid)
         s["state"] = "cr_email"
@@ -466,7 +493,8 @@ def register(bot):
             t("create_email_prompt", uid),
             buttons=[
                 [Button.inline(t("btn_random_email", uid), b"re")],
-                [Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())],
+                [Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode()),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
             ],
         )
 
@@ -481,7 +509,8 @@ def register(bot):
         await reply(
             event,
             t("create_email_line", uid, email=email) + "\n\n" + t("enter_traffic_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^sau:([yn])$"))
@@ -505,6 +534,8 @@ def register(bot):
         allowed = user_inbounds(uid, panel_name)
         if allowed is not None and iid not in allowed:
             return
+        if not await _check_protocol(event, uid, panel_name, iid):
+            return
         s = st(uid)
         s["bk_iid"] = iid
         s["bk_pid"] = panel_name
@@ -518,7 +549,8 @@ def register(bot):
                     Button.inline(t("btn_by_count", uid), b"bkm:c"),
                     Button.inline(t("btn_by_email_list", uid), b"bkm:e"),
                 ],
-                [Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())],
+                [Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode()),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
             ],
         )
 
@@ -531,7 +563,8 @@ def register(bot):
         await reply(
             event,
             t("bulk_count_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(data=b"bkm:e"))
@@ -543,7 +576,8 @@ def register(bot):
         await reply(
             event,
             t("bulk_emails_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bkn:(.+)$"))
@@ -562,7 +596,8 @@ def register(bot):
             await reply(
                 event,
                 t("bulk_preview", uid, sample=sample, ellipsis=ellipsis),
-                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
             )
         else:
             # All other methods need a prefix first
@@ -570,7 +605,8 @@ def register(bot):
             await reply(
                 event,
                 t("enter_prefix_prompt", uid),
-                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode())]],
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{s['bk_pid']}:{s['bk_iid']}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
             )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bksa:([yn])$"))
