@@ -11,7 +11,7 @@ from db import get_db_admins, get_setting
 from helpers import auth
 from i18n import t
 from handlers.search import show_search_result
-from handlers.modify import handle_modify_traffic_input, handle_modify_days_input
+from handlers.modify import handle_modify_traffic_input, handle_modify_days_input, handle_renew_input
 from handlers.create import handle_create_input, handle_bulk_create_input
 from handlers.bulk_ops import handle_bulk_op_input, handle_bulk_op_manual
 from handlers.owner import handle_owner_input, handle_owner_restore
@@ -146,6 +146,11 @@ def register(bot):
         # ── Modify days states ───────────────────────────────────────────
         if state and state.startswith("md_"):
             if await handle_modify_days_input(event):
+                return
+
+        # ── Renew plan states ─────────────────────────────────────────
+        if state and state.startswith("rn_"):
+            if await handle_renew_input(event):
                 return
 
         # ── Bulk operation input ─────────────────────────────────────────

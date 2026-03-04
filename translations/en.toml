@@ -116,6 +116,20 @@ md_sub_past = "⚠️ Result would be in the past. Set to 1 day from now."
 md_sub_success = "✅ Subtracted {days} day(s)."
 md_edit_success = "✅ Duration updated."
 
+# ── Renew Plan ──────────────────────────────────────────────────────────────
+btn_renew = "🔄 Renew"
+rn_title = "🔄 **Renew Plan**"
+rn_info_email = "👤 Email: `{email}`"
+rn_info_traffic = "ℹ️ Current traffic: {limit} (used: {used})"
+rn_info_duration = "ℹ️ Current duration: {duration}"
+rn_selected_traffic = "✅ Add traffic: {gb} GB"
+rn_selected_days = "✅ Add days: {days}"
+rn_gb_prompt = "📦 Enter GB to add (0 = no change):"
+rn_gb_invalid = "⚠️ Invalid number. Enter GB to add (0 = no change):"
+rn_days_prompt = "⏳ Enter days to add (0 = no change):"
+rn_days_invalid = "⚠️ Invalid number. Enter days to add (0 = no change):"
+rn_success = "✅ Plan renewed — +{gb} GB, +{days} day(s)."
+
 # ── Create Account ───────────────────────────────────────────────────────────
 inbound_not_found = "❌ Inbound not found."
 create_email_prompt = "👤 Enter email for new account:"
