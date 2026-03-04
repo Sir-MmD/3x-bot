@@ -11,12 +11,16 @@ CONFIG_FILE="${INSTALL_DIR}/config.toml"
 VERSION_FILE="${INSTALL_DIR}/.version"
 WIDTH=40
 
+# --- State ---
+INCLUDE_PRERELEASE=false
+
 # --- Colors ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m'
 
 # --- Helpers ---
@@ -58,7 +62,8 @@ get_installed_version() {
     fi
 }
 
-get_latest_version() {
+# Fetch the latest stable release tag via redirect (no JSON parsing needed)
+get_stable_version() {
     local url="https://github.com/${REPO}/releases/latest"
     local redirect
 
@@ -75,6 +80,33 @@ get_latest_version() {
     fi
 }
 
+# Fetch the newest release tag (including pre-releases) via GitHub API
+get_prerelease_version() {
+    local json
+    if command -v curl &>/dev/null; then
+        json=$(curl -s "https://api.github.com/repos/${REPO}/releases?per_page=1" 2>/dev/null)
+    elif command -v wget &>/dev/null; then
+        json=$(wget -qO- "https://api.github.com/repos/${REPO}/releases?per_page=1" 2>/dev/null)
+    fi
+
+    if [[ -n "$json" ]]; then
+        local tag
+        tag=$(echo "$json" | grep -m1 '"tag_name"' | sed 's/.*"tag_name" *: *"\([^"]*\)".*/\1/')
+        [[ -n "$tag" ]] && echo "$tag" || echo "-"
+    else
+        echo "-"
+    fi
+}
+
+# Return the target version based on INCLUDE_PRERELEASE flag
+get_target_version() {
+    if $INCLUDE_PRERELEASE; then
+        get_prerelease_version
+    else
+        get_stable_version
+    fi
+}
+
 detect_arch() {
     case "$(uname -m)" in
         x86_64|amd64)  echo "amd64" ;;
@@ -87,11 +119,11 @@ detect_arch() {
 }
 
 print_banner() {
-    local status os_name installed latest
+    local status os_name installed target prerelease_tag
     status=$(get_status)
     os_name=$(get_os_name)
     installed=$(get_installed_version)
-    latest=$(get_latest_version)
+    target=$(get_target_version)
 
     local status_color="$RED"
     if [[ "$status" == "Running" ]]; then
@@ -101,8 +133,13 @@ print_banner() {
     fi
 
     local version_color="$GREEN"
-    if [[ "$installed" != "$latest" && "$installed" != "-" && "$latest" != "-" ]]; then
+    if [[ "$installed" != "$target" && "$installed" != "-" && "$target" != "-" ]]; then
         version_color="$YELLOW"
+    fi
+
+    local target_label="Latest"
+    if $INCLUDE_PRERELEASE; then
+        target_label="Latest ${DIM}(pre)${NC}"
     fi
 
     echo
@@ -115,7 +152,7 @@ print_banner() {
     echo -e " OS       : ${CYAN}${os_name}${NC}"
     echo -e " Status   : ${status_color}${status}${NC}"
     echo -e " Installed: ${version_color}${installed}${NC}"
-    echo -e " Latest   : ${GREEN}${latest}${NC}"
+    echo -e " ${target_label}: ${GREEN}${target}${NC}"
     print_separator
 }
 
@@ -129,29 +166,34 @@ check_root() {
 }
 
 download_binary() {
-    local arch latest
+    local arch target
     arch=$(detect_arch)
-    latest=$(get_latest_version)
+    target=$(get_target_version)
 
-    if [[ "$latest" == "-" ]]; then
-        error "Could not determine latest version."
+    if [[ "$target" == "-" ]]; then
+        error "Could not determine target version."
+        if ! $INCLUDE_PRERELEASE; then
+            warn "No stable release found. Try enabling pre-release (option 5)."
+        fi
         exit 1
     fi
 
-    local url="https://github.com/${REPO}/releases/download/${latest}/${BIN_NAME}-linux-${arch}"
+    local url="https://github.com/${REPO}/releases/download/${target}/${BIN_NAME}-linux-${arch}"
 
-    info "Downloading ${BIN_NAME} ${latest} (${arch})..."
+    info "Downloading ${BIN_NAME} ${target} (${arch})..."
+    echo
     if command -v curl &>/dev/null; then
-        curl -fSL -o "${INSTALL_DIR}/${BIN_NAME}" "$url"
+        curl -fL --progress-bar -o "${INSTALL_DIR}/${BIN_NAME}" "$url"
     elif command -v wget &>/dev/null; then
-        wget -qO "${INSTALL_DIR}/${BIN_NAME}" "$url"
+        wget --show-progress -qO "${INSTALL_DIR}/${BIN_NAME}" "$url"
     else
         error "curl or wget is required."
         exit 1
     fi
+    echo
 
     chmod +x "${INSTALL_DIR}/${BIN_NAME}"
-    echo "$latest" > "$VERSION_FILE"
+    echo "$target" > "$VERSION_FILE"
 }
 
 write_service() {
@@ -262,16 +304,16 @@ do_update() {
         return 1
     fi
 
-    local installed latest
+    local installed target
     installed=$(get_installed_version)
-    latest=$(get_latest_version)
+    target=$(get_target_version)
 
-    if [[ "$installed" == "$latest" ]]; then
+    if [[ "$installed" == "$target" ]]; then
         info "Already up to date (${installed})."
         return 0
     fi
 
-    info "Updating ${installed} -> ${latest}..."
+    info "Updating ${installed} -> ${target}..."
     systemctl stop "$SERVICE_NAME" || true
 
     download_binary
@@ -320,6 +362,16 @@ do_uninstall() {
     info "Uninstall complete!"
 }
 
+toggle_prerelease() {
+    if $INCLUDE_PRERELEASE; then
+        INCLUDE_PRERELEASE=false
+        info "Pre-release channel disabled."
+    else
+        INCLUDE_PRERELEASE=true
+        info "Pre-release channel enabled."
+    fi
+}
+
 # --- Menu ---
 
 show_menu() {
@@ -327,24 +379,32 @@ show_menu() {
         clear
         print_banner
         echo
+
+        local pre_label="OFF"
+        if $INCLUDE_PRERELEASE; then
+            pre_label="${GREEN}ON${NC}"
+        fi
+
         echo -e "  ${GREEN}1.${NC} Install"
         echo -e "  ${GREEN}2.${NC} Update"
         echo -e "  ${GREEN}3.${NC} Configure"
         echo -e "  ${GREEN}4.${NC} Uninstall"
+        echo -e "  ${GREEN}5.${NC} Pre-release [${pre_label}]"
         print_separator
         echo -e "  ${GREEN}0.${NC} Exit"
         print_separator
         echo
 
         local choice
-        read -rp " Choose [0-4]: " choice < /dev/tty
+        read -rp " Choose [0-5]: " choice < /dev/tty
 
         echo
         case "$choice" in
-            1) do_install   || true ;;
-            2) do_update    || true ;;
-            3) do_config    || true ;;
-            4) do_uninstall || true ;;
+            1) do_install        || true ;;
+            2) do_update         || true ;;
+            3) do_config         || true ;;
+            4) do_uninstall      || true ;;
+            5) toggle_prerelease || true ;;
             0) echo; exit 0 ;;
             *) warn "Invalid option: ${choice}" ;;
         esac
