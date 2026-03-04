@@ -1,8 +1,10 @@
 import asyncio
+import json
 
 from telethon import events, Button
 
 from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot, visible_panels, user_inbounds
+from db import log_activity
 from helpers import format_bytes, format_expiry, make_qr, auth, reply, search_result_buttons
 from i18n import t
 from panel import build_client_link
@@ -146,6 +148,8 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
     else:
         await reply(event, text, buttons=btns)
 
+    log_activity(uid, "search", json.dumps({"email": actual_email, "panel": found_panel}))
+
 
 def register(bot):
     @bot.on(events.CallbackQuery(data=b"s"))
@@ -182,6 +186,7 @@ def register(bot):
         client["enable"] = False
         p = get_panel(s["sr_pid"])
         await p.update_client(s["sr_cid"], s["sr_iid"], client)
+        log_activity(event.sender_id, "disable", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"]}))
         await show_search_result(event, event.sender_id, s["sr_email"], panel_name=s["sr_pid"])
 
     @bot.on(events.CallbackQuery(data=b"en"))
@@ -194,6 +199,7 @@ def register(bot):
         client["enable"] = True
         p = get_panel(s["sr_pid"])
         await p.update_client(s["sr_cid"], s["sr_iid"], client)
+        log_activity(event.sender_id, "enable", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"]}))
         await show_search_result(event, event.sender_id, s["sr_email"], panel_name=s["sr_pid"])
 
     @bot.on(events.CallbackQuery(data=b"rm"))
@@ -225,6 +231,7 @@ def register(bot):
         try:
             await p.delete_client(iid, cid)
             text = t("remove_success", uid)
+            log_activity(uid, "remove", json.dumps({"email": s.get("sr_email"), "panel": pid}))
         except RuntimeError as e:
             text = t("error_msg", uid, error=e)
         clear(uid)
@@ -286,3 +293,4 @@ def register(bot):
         )
         await event.answer(t("generating_pdf", uid))
         await bot.send_file(event.chat_id, pdf, caption=t("account_pdf", uid))
+        log_activity(uid, "pdf_export", json.dumps({"email": email, "panel": pid}))
