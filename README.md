@@ -16,6 +16,8 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Public mode** — optionally open the bot to everyone with configurable permissions
 - **Force join** — require users to join specific channels before using the bot
 - **Multi-language** — English, Persian, Russian with per-user selection and RTL PDF support
+- **Activity logging** — audit trail of all user actions (search, create, modify, remove, bulk ops, admin changes) with timestamps
+- **Admin display names** — admin list shows Telegram names alongside user IDs
 - **Backup & Restore** — download/upload config + database as ZIP
 - **Proxy support** — HTTP/SOCKS proxy for both Telegram and panel connections
 

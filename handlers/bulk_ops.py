@@ -5,6 +5,7 @@ import time
 from telethon import events, Button
 
 from config import get_panel, st, clear, bot, visible_panels, visible_inbounds
+from db import log_activity
 from helpers import auth, reply
 from i18n import t
 
@@ -133,6 +134,11 @@ async def _bulk_op_execute(event, uid: int):
         await progress_msg.delete()
     except Exception:
         pass
+
+    log_activity(uid, "bulk_op", json.dumps({
+        "panel": panel_name, "op": op, "action": action, "value": value,
+        "success": success, "failed": failed, "skipped": skipped,
+    }))
 
     action_label = t("action_added", uid) if action == "add" else t("action_subtracted", uid)
     if op == "d":

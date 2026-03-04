@@ -1,4 +1,5 @@
 import io
+import json
 import re
 import zipfile
 from datetime import datetime
@@ -24,7 +25,8 @@ from db import (
     _lang_cache, _DB_PATH,
 )
 import db as _db_mod
-from helpers import auth, reply
+from helpers import auth, reply, get_display_name
+from db import log_activity, get_user_profile, upsert_user_profile
 from i18n import t
 from panel import PanelClient
 
@@ -124,7 +126,26 @@ async def _show_admin_list(event, uid: int):
     for aid, info in sorted(all_adm.items()):
         icon = "👑" if info["is_owner"] else "👤"
         lock = " 🔒" if info["source"] == "config" else ""
-        btns.append([Button.inline(f"{icon} {aid}{lock}", f"op:ad:{aid}".encode())])
+        name = get_display_name(aid)
+        if name == str(aid):
+            # No cached profile — try fetching entity as fallback
+            try:
+                entity = await bot.get_entity(aid)
+                first = getattr(entity, "first_name", "") or ""
+                last = getattr(entity, "last_name", "") or ""
+                uname = getattr(entity, "username", "") or ""
+                if first or last:
+                    upsert_user_profile(aid, first, last, uname, "", "")
+                    name = first
+                    if last:
+                        name += " " + last
+            except Exception:
+                pass
+        label = f"{icon} {name} ({aid}){lock}"
+        if len(label) > 60:
+            avail = 60 - len(f"{icon}  ({aid}){lock}") - 1
+            label = f"{icon} {name[:avail]}… ({aid}){lock}"
+        btns.append([Button.inline(label, f"op:ad:{aid}".encode())])
     btns.append([Button.inline(t("btn_add_admin", uid), b"op:aa")])
     btns.append([Button.inline(t("btn_back", uid), b"op")])
     await reply(event, t("op_admins_title", uid), buttons=btns)
@@ -153,14 +174,25 @@ async def _show_admin_detail(event, uid: int, target_uid: int):
         return
 
     raw, db_is_owner, admin_panels, admin_inbounds = db_admins[target_uid]
+    prof = get_user_profile(target_uid)
     lines = [
         t("op_admin_detail_title", uid),
         t("op_admin_uid", uid, id=target_uid),
+    ]
+    if prof:
+        name = prof["first_name"]
+        if prof["last_name"]:
+            name += " " + prof["last_name"]
+        if name.strip():
+            lines.append(t("op_admin_name", uid, name=name))
+        if prof["username"]:
+            lines.append(t("op_admin_username", uid, username=prof["username"]))
+    lines.extend([
         t("op_admin_is_owner", uid) if db_is_owner else t("op_admin_is_admin", uid),
         t("op_admin_perms", uid, perms=_format_perms(raw)),
         t("op_admin_panels", uid, panels=_format_panels(admin_panels)),
         t("op_admin_inbounds", uid, inbounds=_format_inbounds(admin_inbounds)),
-    ]
+    ])
     text = "\n".join(lines)
 
     has_star = "*" in raw
@@ -558,6 +590,7 @@ async def handle_owner_restore(event) -> bool:
     # Reload panels
     load_db_panels()
 
+    log_activity(uid, "restore")
     clear(uid)
     await event.respond(
         t("restore_success", uid) + "\n" + t("restore_restart_note", uid),
@@ -679,6 +712,7 @@ async def _finalize_add_panel(event, uid, s, sub_url=""):
                  data["proxy"], data["sub_url"], uid)
     register_panel(data["name"], data["url"], data["username"], data["password"],
                    data["proxy"], data["sub_url"])
+    log_activity(uid, "add_panel", json.dumps({"name": data["name"]}))
     clear(uid)
     await event.respond(
         t("op_add_panel_success", uid, name=data["name"]),
@@ -693,6 +727,7 @@ async def _handle_force_join_input(event, uid, s):
     else:
         channels = ",".join(ch.strip() for ch in text.split(",") if ch.strip())
         set_setting("force_join", channels)
+    log_activity(uid, "edit_force_join", json.dumps({"value": text}))
     clear(uid)
     await event.respond(
         t("op_force_join_saved", uid),
@@ -847,6 +882,7 @@ def register(bot):
         if new_perms >= ALL_PERMS:
             new_perms = {"*"}
         update_db_admin_perms(target_uid, new_perms)
+        log_activity(uid, "toggle_perm", json.dumps({"target": target_uid, "perm": perm}))
         await _show_admin_detail(event, uid, target_uid)
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:tow:(\d+)$"))
@@ -864,7 +900,9 @@ def register(bot):
         if current_owner and _count_owners() <= 1:
             await event.answer(t("op_cannot_demote_last_owner", uid), alert=True)
             return
-        update_db_admin_owner(target_uid, not current_owner)
+        new_owner = not current_owner
+        update_db_admin_owner(target_uid, new_owner)
+        log_activity(uid, "toggle_owner", json.dumps({"target": target_uid, "is_owner": new_owner}))
         await _show_admin_detail(event, uid, target_uid)
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:ra:(\d+)$"))
@@ -893,6 +931,7 @@ def register(bot):
         if target_uid == uid or target_uid == owner_id:
             return
         remove_db_admin(target_uid)
+        log_activity(uid, "remove_admin", json.dumps({"target": target_uid}))
         await reply(event, t("op_admin_removed", uid, id=target_uid),
                     buttons=_back_btn(uid, b"op:admins"))
 
@@ -938,6 +977,7 @@ def register(bot):
         if not selected:
             selected = {"*"}
         update_db_admin_panels(target_uid, selected)
+        log_activity(uid, "edit_admin_panels", json.dumps({"target": target_uid, "panels": sorted(selected)}))
         s.pop("op_ep_panels", None)
         await _show_admin_detail(event, uid, target_uid)
 
@@ -1047,6 +1087,7 @@ def register(bot):
                 # Empty selection = no restriction (remove entry)
                 new_inbounds.pop(panel_name, None)
         update_db_admin_inbounds(target_uid, new_inbounds)
+        log_activity(uid, "edit_admin_inbounds", json.dumps({"target": target_uid, "panel": panel_name}))
         s.pop("op_ei_all", None)
         s.pop("op_ei_selected", None)
         s.pop("op_ei_inbound_list", None)
@@ -1114,6 +1155,7 @@ def register(bot):
         selected_perms = s.get("op_aa_perms", set())
         selected_panels = s.get("op_aa_panels", {"*"})
         add_db_admin(target_uid, selected_perms, False, uid, admin_panels=selected_panels)
+        log_activity(uid, "add_admin", json.dumps({"target": target_uid, "perms": sorted(selected_perms), "panels": sorted(selected_panels)}))
         clear(uid)
         await reply(event, t("op_admin_added", uid, id=target_uid),
                     buttons=_back_btn(uid, b"op:admins"))
@@ -1162,6 +1204,7 @@ def register(bot):
         remove_db_panel(name)
         remove_panel_from_admins(name)
         remove_panel_from_settings(name)
+        log_activity(uid, "remove_panel", json.dumps({"name": name}))
         await reply(event, t("op_panel_removed", uid, name=name),
                     buttons=_back_btn(uid, b"op:panels"))
 
@@ -1314,6 +1357,7 @@ def register(bot):
                            pd_new["password"], pd_new.get("proxy", ""),
                            pd_new.get("sub_url", ""))
 
+        log_activity(uid, "edit_panel", json.dumps({"name": target, "fields": list(edits.keys())}))
         clear(uid)
         await reply(event, t("op_pe_success", uid, name=target),
                     buttons=_back_btn(uid, f"op:pd:{target}".encode()))
@@ -1342,9 +1386,12 @@ def register(bot):
     @auth
     @_require_owner
     async def cb_toggle_public_mode(event):
+        uid = event.sender_id
         current = get_setting("public_mode") == "1"
-        set_setting("public_mode", "0" if current else "1")
-        await _show_settings(event, event.sender_id)
+        new_val = "0" if current else "1"
+        set_setting("public_mode", new_val)
+        log_activity(uid, "toggle_public_mode", json.dumps({"enabled": new_val == "1"}))
+        await _show_settings(event, uid)
 
     @bot.on(events.CallbackQuery(data=b"op:epp"))
     @auth
@@ -1384,6 +1431,7 @@ def register(bot):
         else:
             val = ",".join(sorted(selected))
         set_setting("public_permissions", val)
+        log_activity(uid, "edit_public_perms", json.dumps({"perms": val}))
         clear(uid)
         await reply(event, t("op_public_perms_saved", uid),
                     buttons=_back_btn(uid, b"op:set"))
@@ -1431,6 +1479,7 @@ def register(bot):
         else:
             val = ",".join(sorted(selected))
         set_setting("public_panels", val)
+        log_activity(uid, "edit_public_panels", json.dumps({"panels": val}))
         clear(uid)
         await reply(event, t("op_public_panels_saved", uid),
                     buttons=_back_btn(uid, b"op:set"))
@@ -1522,6 +1571,7 @@ def register(bot):
             else:
                 pub_inbounds.pop(panel_name, None)
         set_setting("public_inbounds", _serialize_inbounds(pub_inbounds))
+        log_activity(uid, "edit_public_inbounds", json.dumps({"panel": panel_name}))
         s.pop("op_epi_all", None)
         s.pop("op_epi_selected", None)
         s.pop("op_epi_inbound_list", None)
@@ -1559,6 +1609,7 @@ def register(bot):
         buf.name = f"3x-bot-backup-{stamp}.zip"
         caption = t("backup_caption", uid, date=now.strftime("%Y/%m/%d"), time=now.strftime("%H:%M"))
         await bot.send_file(event.chat_id, buf, caption=caption)
+        log_activity(uid, "backup")
 
     @bot.on(events.CallbackQuery(data=b"op:rs"))
     @auth
@@ -1586,6 +1637,7 @@ def register(bot):
     @_require_owner
     async def cb_restart_execute(event):
         uid = event.sender_id
+        log_activity(uid, "restart")
         await event.respond(t("restarting", uid))
         _config_mod.restart_requested = uid
         await bot.disconnect()

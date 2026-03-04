@@ -5,6 +5,7 @@ import time
 from telethon import events, Button
 
 from config import get_panel, clear, has_perm, user_perms, visible_panels, visible_inbounds, user_inbounds
+from db import log_activity
 from helpers import auth, reply, format_client_line
 from i18n import t
 
@@ -183,6 +184,7 @@ def register(bot):
                 buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
             )
             return
+        log_activity(uid, "reset_all_traffic", json.dumps({"panel": panel_name, "inbound": iid}))
         await event.answer(t("reset_all_traffic_success", uid))
         await _show_client_list(event, uid, panel_name, iid)
 
@@ -224,6 +226,7 @@ def register(bot):
                 buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
             )
             return
+        log_activity(uid, "delete_depleted", json.dumps({"panel": panel_name, "inbound": iid}))
         await event.answer(t("delete_depleted_success", uid))
         await _show_client_list(event, uid, panel_name, iid)
 

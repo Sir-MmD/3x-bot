@@ -4,6 +4,7 @@ import time
 from telethon import events, Button
 
 from config import get_panel, st, clear, server_addrs, sub_urls, bot, user_inbounds
+from db import log_activity
 from helpers import (
     format_bytes, format_expiry, rand_email, generate_bulk_emails,
     make_qr, auth, reply, build_client_dict,
@@ -60,6 +61,8 @@ async def _create_client(event, uid: int):
             buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
         )
         return
+
+    log_activity(uid, "create", json.dumps({"email": email, "panel": panel_name, "inbound": iid}))
 
     addr = server_addrs[panel_name]
     sub_url = sub_urls[panel_name]
@@ -192,6 +195,8 @@ async def _bulk_create_clients(event, uid: int):
         await progress_msg.delete()
     except Exception:
         pass
+
+    log_activity(uid, "bulk_create", json.dumps({"panel": panel_name, "inbound": iid, "created": len(created), "failed": len(failed)}))
 
     remark = inbound.get('remark', '?')
 

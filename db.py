@@ -8,6 +8,8 @@ _lang_cache: dict[int, str] = {}
 _admins_cache: dict[int, tuple[set[str], bool, set[str], dict[str, set[int] | None]]] | None = None
 _panels_cache: list[dict] | None = None
 _settings_cache: dict[str, str] | None = None
+_profiles_cache: dict[int, tuple[str, str, str, str, str]] = {}  # uid → (first, last, user, phone, bio)
+_profile_ts_cache: dict[int, float] = {}  # uid → updated_at
 
 
 def init_db():
@@ -46,6 +48,28 @@ def init_db():
             value TEXT NOT NULL
         )"""
     )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS user_profiles (
+            user_id    INTEGER PRIMARY KEY,
+            first_name TEXT NOT NULL DEFAULT '',
+            last_name  TEXT NOT NULL DEFAULT '',
+            username   TEXT NOT NULL DEFAULT '',
+            phone      TEXT NOT NULL DEFAULT '',
+            bio        TEXT NOT NULL DEFAULT '',
+            updated_at REAL NOT NULL
+        )"""
+    )
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS activity_log (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER NOT NULL,
+            action     TEXT NOT NULL,
+            detail     TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL
+        )"""
+    )
+    con.execute("CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_activity_time ON activity_log(created_at)")
     # Migration: add panels column to db_admins
     try:
         con.execute("ALTER TABLE db_admins ADD COLUMN panels TEXT NOT NULL DEFAULT '*'")
@@ -401,3 +425,69 @@ def set_setting(key: str, value: str):
     con.close()
     if _settings_cache is not None:
         _settings_cache[key] = value
+
+
+# ── User Profiles ────────────────────────────────────────────────────────────
+
+def upsert_user_profile(uid: int, first_name: str, last_name: str,
+                         username: str, phone: str, bio: str):
+    now = time.time()
+    con = sqlite3.connect(_DB_PATH)
+    con.execute(
+        "INSERT INTO user_profiles (user_id, first_name, last_name, username, phone, bio, updated_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT(user_id) DO UPDATE SET"
+        " first_name=excluded.first_name, last_name=excluded.last_name,"
+        " username=excluded.username, phone=excluded.phone,"
+        " bio=excluded.bio, updated_at=excluded.updated_at",
+        (uid, first_name, last_name, username, phone, bio, now),
+    )
+    con.commit()
+    con.close()
+    _profiles_cache[uid] = (first_name, last_name, username, phone, bio)
+    _profile_ts_cache[uid] = now
+
+
+def get_user_profile(uid: int) -> dict | None:
+    if uid in _profiles_cache:
+        first, last, user, phone, bio = _profiles_cache[uid]
+        return {"first_name": first, "last_name": last, "username": user,
+                "phone": phone, "bio": bio}
+    con = sqlite3.connect(_DB_PATH)
+    row = con.execute(
+        "SELECT first_name, last_name, username, phone, bio, updated_at"
+        " FROM user_profiles WHERE user_id = ?", (uid,)
+    ).fetchone()
+    con.close()
+    if not row:
+        return None
+    _profiles_cache[uid] = row[:5]
+    _profile_ts_cache[uid] = row[5]
+    return {"first_name": row[0], "last_name": row[1], "username": row[2],
+            "phone": row[3], "bio": row[4]}
+
+
+def get_profile_updated_at(uid: int) -> float:
+    if uid in _profile_ts_cache:
+        return _profile_ts_cache[uid]
+    con = sqlite3.connect(_DB_PATH)
+    row = con.execute(
+        "SELECT updated_at FROM user_profiles WHERE user_id = ?", (uid,)
+    ).fetchone()
+    con.close()
+    if row:
+        _profile_ts_cache[uid] = row[0]
+        return row[0]
+    return 0.0
+
+
+# ── Activity Log ─────────────────────────────────────────────────────────────
+
+def log_activity(uid: int, action: str, detail: str = ""):
+    con = sqlite3.connect(_DB_PATH)
+    con.execute(
+        "INSERT INTO activity_log (user_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        (uid, action, detail, time.time()),
+    )
+    con.commit()
+    con.close()

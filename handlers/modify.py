@@ -1,8 +1,10 @@
+import json
 import time
 
 from telethon import events, Button
 
 from config import get_panel, st
+from db import log_activity
 from helpers import format_bytes, format_expiry, auth, reply
 from i18n import t
 from handlers.search import show_search_result
@@ -28,6 +30,7 @@ async def handle_modify_traffic_input(event):
         p = get_panel(s["sr_pid"])
         try:
             await p.update_client(s["sr_cid"], s["sr_iid"], client)
+            log_activity(uid, "modify_traffic_edit", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"], "gb": gb}))
             await event.respond(t("mt_edit_success", uid))
         except RuntimeError as e:
             await event.respond(t("error_msg", uid, error=e))
@@ -55,6 +58,7 @@ async def handle_modify_traffic_input(event):
         p = get_panel(s["sr_pid"])
         try:
             await p.update_client(s["sr_cid"], s["sr_iid"], client)
+            log_activity(uid, "modify_traffic_add", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"], "gb": gb}))
             await event.respond(t("mt_add_success", uid))
         except RuntimeError as e:
             await event.respond(t("error_msg", uid, error=e))
@@ -87,6 +91,7 @@ async def handle_modify_traffic_input(event):
         p = get_panel(s["sr_pid"])
         try:
             await p.update_client(s["sr_cid"], s["sr_iid"], client)
+            log_activity(uid, "modify_traffic_sub", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"], "gb": gb}))
             await event.respond(t("mt_sub_success", uid, gb=gb))
         except RuntimeError as e:
             await event.respond(t("error_msg", uid, error=e))
@@ -115,6 +120,7 @@ async def handle_modify_days_input(event):
             p = get_panel(s["sr_pid"])
             try:
                 await p.update_client(s["sr_cid"], s["sr_iid"], s["sr_client"])
+                log_activity(uid, "modify_days_edit", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"], "days": 0}))
                 await event.respond(t("md_unlimited_success", uid))
             except RuntimeError as e:
                 await event.respond(t("error_msg", uid, error=e))
@@ -157,6 +163,7 @@ async def handle_modify_days_input(event):
         p = get_panel(s["sr_pid"])
         try:
             await p.update_client(s["sr_cid"], s["sr_iid"], client)
+            log_activity(uid, "modify_days_add", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"], "days": days}))
             await event.respond(t("md_add_success", uid, days=days))
         except RuntimeError as e:
             await event.respond(t("error_msg", uid, error=e))
@@ -200,6 +207,7 @@ async def handle_modify_days_input(event):
         p = get_panel(s["sr_pid"])
         try:
             await p.update_client(s["sr_cid"], s["sr_iid"], client)
+            log_activity(uid, "modify_days_sub", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"], "days": days}))
             await event.respond(t("md_sub_success", uid, days=days))
         except RuntimeError as e:
             await event.respond(t("error_msg", uid, error=e))
@@ -285,6 +293,7 @@ def register(bot):
         p = get_panel(pid)
         try:
             await p.reset_client_traffic(iid, email)
+            log_activity(uid, "modify_traffic_reset", json.dumps({"email": email, "panel": pid}))
             await event.answer(t("mt_reset_success", uid))
         except RuntimeError as e:
             await event.answer(f"Error: {e}", alert=True)
@@ -396,6 +405,7 @@ def register(bot):
         p = get_panel(s["sr_pid"])
         try:
             await p.update_client(s["sr_cid"], s["sr_iid"], s["sr_client"])
+            log_activity(uid, "modify_days_edit", json.dumps({"email": s["sr_email"], "panel": s["sr_pid"], "days": days}))
             await event.answer(t("md_edit_success", uid))
         except RuntimeError as e:
             await event.answer(f"Error: {e}", alert=True)

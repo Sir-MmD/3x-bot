@@ -9,10 +9,11 @@ from base64 import b64encode
 import qrcode
 from telethon import events, Button
 from telethon.tl.functions.channels import GetParticipantRequest
+from telethon.tl.functions.users import GetFullUserRequest
 from telethon.errors import UserNotParticipantError
 
 from config import bot, panels, user_perms, has_perm, is_owner, get_force_join, visible_panels
-from db import get_user_lang, get_db_admins
+from db import get_user_lang, get_db_admins, get_user_profile, get_profile_updated_at, upsert_user_profile
 from i18n import t, LANGUAGES
 
 
@@ -136,6 +137,50 @@ async def _show_lang_picker(event, uid: int):
     await reply(event, text, buttons=_lang_picker_buttons())
 
 
+# ── Profile ──────────────────────────────────────────────────────────────
+
+_PROFILE_TTL = 86400  # 24 hours
+
+
+async def _maybe_update_profile(event, uid: int):
+    """Capture non-owner Telegram profile info with a 24h TTL."""
+    if is_owner(uid):
+        return
+    try:
+        last = get_profile_updated_at(uid)
+        if time.time() - last < _PROFILE_TTL:
+            return
+        sender = await event.get_sender()
+        if not sender:
+            return
+        first_name = getattr(sender, "first_name", "") or ""
+        last_name = getattr(sender, "last_name", "") or ""
+        username = getattr(sender, "username", "") or ""
+        phone = getattr(sender, "phone", "") or ""
+        bio = ""
+        if last == 0.0:
+            # First capture — also fetch bio
+            try:
+                full = await bot(GetFullUserRequest(uid))
+                bio = getattr(full.full_user, "about", "") or ""
+            except Exception:
+                pass
+        upsert_user_profile(uid, first_name, last_name, username, phone, bio)
+    except Exception:
+        pass
+
+
+def get_display_name(uid: int) -> str:
+    """Return 'FirstName LastName' from cached profile, or str(uid) fallback."""
+    prof = get_user_profile(uid)
+    if not prof:
+        return str(uid)
+    name = prof["first_name"]
+    if prof["last_name"]:
+        name += " " + prof["last_name"]
+    return name if name.strip() else str(uid)
+
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 def auth(func_or_perm=None):
@@ -155,6 +200,7 @@ def auth(func_or_perm=None):
                 return
             if not await _check_force_join(event, uid):
                 return
+            await _maybe_update_profile(event, uid)
             return await func(event)
         return wrapper
 
@@ -170,6 +216,7 @@ def auth(func_or_perm=None):
                 return
             if not await _check_force_join(event, uid):
                 return
+            await _maybe_update_profile(event, uid)
             return await func(event)
         return wrapper
     return decorator
