@@ -13,7 +13,7 @@ from i18n import t
 from handlers.search import show_search_result
 from handlers.modify import handle_modify_traffic_input, handle_modify_days_input
 from handlers.create import handle_create_input, handle_bulk_create_input
-from handlers.bulk_ops import handle_bulk_op_input
+from handlers.bulk_ops import handle_bulk_op_input, handle_bulk_op_manual
 from handlers.owner import handle_owner_input, handle_owner_restore
 
 # ── Rate limit tracker ────────────────────────────────────────────────────────
@@ -149,6 +149,9 @@ def register(bot):
                 return
 
         # ── Bulk operation input ─────────────────────────────────────────
+        if state == "bo_manual":
+            if await handle_bulk_op_manual(event):
+                return
         if state == "bo_input":
             if await handle_bulk_op_input(event):
                 return

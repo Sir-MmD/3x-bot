@@ -1,13 +1,25 @@
 import asyncio
+import io
 import json
 import time
 
 from telethon import events, Button
 
-from config import get_panel, st, clear, bot, visible_panels, visible_inbounds
+from config import get_panel, st, clear, bot, visible_panels, visible_inbounds, server_addrs, sub_urls
 from db import log_activity
-from helpers import auth, reply, answer
+from helpers import auth, reply, answer, format_bytes, format_expiry, make_qr
 from i18n import t
+from panel import build_client_link, SUPPORTED_PROTOCOLS
+from pdf_export import generate_account_pdf
+
+
+def _back_data(uid: int) -> bytes:
+    """Return the appropriate back callback data based on bulk ops source."""
+    s = st(uid)
+    source = s.get("bo_source", "main")
+    if source == "main":
+        return b"bom_start"
+    return f"pm:{source}".encode()
 
 
 async def _bulk_op_execute(event, uid: int):
@@ -16,8 +28,6 @@ async def _bulk_op_execute(event, uid: int):
     op = s["bo_op"]
     action = s["bo_action"]
     value = s["bo_value"]
-    panel_name = s["bo_pid"]
-    p = get_panel(panel_name)
 
     if not clients:
         await reply(
@@ -91,17 +101,17 @@ async def _bulk_op_execute(event, uid: int):
                 updated["totalGB"] = new_val
         return updated, False
 
-    # Group clients by inbound_id so updates within the same inbound
-    # run sequentially (3x-ui stores all clients as a JSON array inside
-    # the inbound settings — concurrent writes to the same inbound
-    # cause a read-modify-write race that silently drops changes).
-    by_inbound: dict[int, list] = {}
-    for client, iid, cid, proto in clients:
-        by_inbound.setdefault(iid, []).append((client, iid, cid, proto))
+    # Group clients by (panel_name, inbound_id) so updates within the same
+    # inbound run sequentially (3x-ui read-modify-write race).
+    by_group: dict[tuple[str, int], list] = {}
+    for client, iid, cid, proto, pname in clients:
+        by_group.setdefault((pname, iid), []).append((client, iid, cid, proto, pname))
 
     async def process_inbound_group(group):
         nonlocal success, failed, skipped, done_count
-        for client, inbound_id, client_id, protocol in group:
+        panel_name = group[0][4]
+        p = get_panel(panel_name)
+        for client, inbound_id, client_id, protocol, _pn in group:
             updated, skip = apply_change(client)
             if skip:
                 async with counters_lock:
@@ -127,7 +137,7 @@ async def _bulk_op_execute(event, uid: int):
                     pass
 
     await asyncio.gather(*[
-        process_inbound_group(group) for group in by_inbound.values()
+        process_inbound_group(group) for group in by_group.values()
     ])
 
     try:
@@ -135,8 +145,12 @@ async def _bulk_op_execute(event, uid: int):
     except Exception:
         pass
 
+    # Determine involved panels for logging/display
+    involved_panels = sorted({pname for _, _, _, _, pname in clients})
+    panels_str = ", ".join(involved_panels)
+
     log_activity(uid, "bulk_op", json.dumps({
-        "panel": panel_name, "op": op, "action": action, "value": value,
+        "panels": involved_panels, "op": op, "action": action, "value": value,
         "success": success, "failed": failed, "skipped": skipped,
     }))
 
@@ -150,7 +164,7 @@ async def _bulk_op_execute(event, uid: int):
         t("bo_complete", uid),
         "",
         t("bo_operation", uid, action=action_label, value=value_str),
-        t("sr_panel", uid, panel=panel_name),
+        t("sr_panel", uid, panel=panels_str),
         "",
         t("bo_success", uid, count=success),
         t("bo_failed", uid, count=failed),
@@ -163,6 +177,66 @@ async def _bulk_op_execute(event, uid: int):
         parse_mode="md",
     )
     clear(uid)
+
+
+async def handle_bulk_op_manual(event):
+    """Handle bo_manual text input (manual email entry). Returns True if handled."""
+    uid = event.sender_id
+    s = st(uid)
+    if s.get("state") != "bo_manual":
+        return False
+
+    s["state"] = None
+    bo_panels = s.get("bo_panels", set())
+
+    emails = [line.strip() for line in event.text.strip().splitlines() if line.strip()]
+    if not emails:
+        s["state"] = "bo_manual"
+        await event.respond(t("bo_manual_empty", uid))
+        return True
+
+    collected = []
+    not_found = []
+    for email in emails:
+        found = False
+        for panel_name in sorted(bo_panels):
+            p = get_panel(panel_name)
+            inbounds = await p.list_inbounds()
+            inbounds = visible_inbounds(uid, panel_name, inbounds)
+            for ib in inbounds:
+                protocol = ib["protocol"]
+                settings = json.loads(ib.get("settings", "{}"))
+                for client in settings.get("clients", []):
+                    if client.get("email", "").lower() == email.lower():
+                        client_id = p.get_client_id(client, protocol)
+                        collected.append((client, ib["id"], client_id, protocol, panel_name))
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if not found:
+            not_found.append(email)
+
+    s["bo_clients"] = collected
+    s["bo_filter"] = "manual"
+    await _show_manual_result(event, uid, len(collected), not_found)
+    return True
+
+
+async def _show_manual_result(event, uid, found_count, not_found):
+    s = st(uid)
+    lines = [t("bo_manual_result", uid, found=found_count, not_found=len(not_found))]
+    if not_found and len(not_found) <= 10:
+        lines.append("\n".join(f"  `{e}`" for e in not_found))
+    btns = [
+        [Button.inline(t("btn_days", uid), b"bot:d"), Button.inline(t("btn_traffic", uid), b"bot:t")],
+        [Button.inline(t("btn_export", uid), b"boe")],
+        [Button.inline(t("btn_back", uid), _back_data(uid)),
+         Button.inline(t("btn_main_menu", uid), b"m")],
+    ]
+    await reply(event, "\n".join(lines), buttons=btns)
 
 
 async def handle_bulk_op_input(event):
@@ -193,7 +267,8 @@ async def handle_bulk_op_input(event):
                 t("start_after_use_prompt", uid),
                 buttons=[
                     [Button.inline(t("btn_yes", uid), b"bosa:y"), Button.inline(t("btn_no", uid), b"bosa:n")],
-                    [Button.inline(t("btn_back", uid), f"boa:{s['bo_action']}".encode())],
+                    [Button.inline(t("btn_back", uid), f"boa:{s['bo_action']}".encode()),
+                     Button.inline(t("btn_main_menu", uid), b"m")],
                 ],
             )
         else:
@@ -214,24 +289,164 @@ async def handle_bulk_op_input(event):
     return True
 
 
-def _inbound_selector_buttons(uid, panel_name, inbounds, selected):
-    """Build buttons for the inbound multi-select screen."""
+def _inbound_selector_buttons(uid, inbounds_with_panel, selected):
+    """Build buttons for the inbound multi-select screen.
+
+    inbounds_with_panel: list of (panel_name, inbound_dict)
+    selected: set of (panel_name, iid)
+    """
+    s = st(uid)
+    multi_panel = len(s.get("bo_panels", set())) > 1
     btns = []
-    for ib in inbounds:
+    for panel_name, ib in inbounds_with_panel:
         iid = ib["id"]
-        icon = "\u2705" if iid in selected else "\u2b1c"
-        label = f"{icon} {ib['remark']} | {ib['port']}"
+        supported = ib.get("protocol", "") in SUPPORTED_PROTOCOLS
+        prefix = f"[{panel_name}] " if multi_panel else ""
+        if not supported:
+            label = f"\u26a0\ufe0f {prefix}{ib['remark']} | {ib['port']}"
+        elif (panel_name, iid) in selected:
+            label = f"\u2705 {prefix}{ib['remark']} | {ib['port']}"
+        else:
+            label = f"\u2b1c {prefix}{ib['remark']} | {ib['port']}"
         btns.append([Button.inline(label, f"boi:{panel_name}:{iid}".encode())])
     btns.append([
-        Button.inline(t("btn_select_all", uid), f"boia:{panel_name}".encode()),
-        Button.inline(t("btn_deselect_all", uid), f"boid:{panel_name}".encode()),
+        Button.inline(t("btn_select_all", uid), b"boia"),
+        Button.inline(t("btn_deselect_all", uid), b"boid"),
     ])
-    btns.append([Button.inline(t("btn_continue", uid), f"boc:{panel_name}".encode())])
-    btns.append([Button.inline(t("btn_back", uid), f"pm:{panel_name}".encode())])
+    btns.append([Button.inline(t("btn_continue", uid), b"boic")])
+    btns.append([Button.inline(t("btn_enter_manually", uid), b"bom")])
+    btns.append([Button.inline(t("btn_back", uid), _back_data(uid)),
+                 Button.inline(t("btn_main_menu", uid), b"m")])
     return btns
 
 
+async def _show_inbound_selector(event, uid):
+    """Show the inbound multi-select screen."""
+    s = st(uid)
+    inbounds = s.get("bo_inbounds", [])
+    selected = s.get("bo_selected", set())
+    btns = _inbound_selector_buttons(uid, inbounds, selected)
+    total = len(inbounds)
+    sel_count = len(selected)
+    await reply(
+        event,
+        t("bo_select_inbounds", uid, selected=sel_count, total=total),
+        buttons=btns,
+    )
+
+
+async def _load_inbounds_for_panels(uid, panel_names):
+    """Fetch and filter inbounds for all selected panels. Returns list of (panel_name, inbound)."""
+    result = []
+    for pname in sorted(panel_names):
+        p = get_panel(pname)
+        ibs = await p.list_inbounds()
+        ibs = visible_inbounds(uid, pname, ibs)
+        for ib in ibs:
+            result.append((pname, ib))
+    return result
+
+
 def register(bot):
+
+    # ── Main menu entry: panel multi-select ──────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"bom_start"))
+    @auth("bulk")
+    async def cb_bulk_main_start(event):
+        uid = event.sender_id
+        clear(uid)
+        s = st(uid)
+        vpanels = visible_panels(uid)
+        if not vpanels:
+            return
+        if len(vpanels) == 1:
+            # Skip panel selector, go straight to inbound selector
+            pname = next(iter(vpanels))
+            s["bo_source"] = "main"
+            s["bo_panels"] = {pname}
+            s["bo_inbounds"] = await _load_inbounds_for_panels(uid, {pname})
+            s["bo_selected"] = set()
+            await _show_inbound_selector(event, uid)
+            return
+        s["bo_source"] = "main"
+        s["bo_panels"] = set()
+        btns = []
+        for name in sorted(vpanels):
+            label = f"\u2b1c {name}"
+            btns.append([Button.inline(label, f"bop:{name}".encode())])
+        btns.append([
+            Button.inline(t("btn_select_all", uid), b"bopa"),
+            Button.inline(t("btn_deselect_all", uid), b"bopd"),
+        ])
+        btns.append([Button.inline(t("btn_continue", uid), b"bopc")])
+        btns.append([Button.inline(t("btn_back", uid), b"m")])
+        await reply(event, t("bo_select_panels", uid, selected=0, total=len(vpanels)), buttons=btns)
+
+    async def _show_panel_selector(event, uid):
+        s = st(uid)
+        vpanels = visible_panels(uid)
+        selected = s.get("bo_panels", set())
+        btns = []
+        for name in sorted(vpanels):
+            if name in selected:
+                label = f"\u2705 {name}"
+            else:
+                label = f"\u2b1c {name}"
+            btns.append([Button.inline(label, f"bop:{name}".encode())])
+        btns.append([
+            Button.inline(t("btn_select_all", uid), b"bopa"),
+            Button.inline(t("btn_deselect_all", uid), b"bopd"),
+        ])
+        btns.append([Button.inline(t("btn_continue", uid), b"bopc")])
+        btns.append([Button.inline(t("btn_back", uid), b"m")])
+        await reply(event, t("bo_select_panels", uid, selected=len(selected), total=len(vpanels)), buttons=btns)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^bop:(.+)$"))
+    @auth("bulk")
+    async def cb_bulk_toggle_panel(event):
+        uid = event.sender_id
+        name = event.pattern_match.group(1).decode()
+        s = st(uid)
+        selected = s.get("bo_panels", set())
+        if name in selected:
+            selected.discard(name)
+        else:
+            selected.add(name)
+        s["bo_panels"] = selected
+        await _show_panel_selector(event, uid)
+
+    @bot.on(events.CallbackQuery(data=b"bopa"))
+    @auth("bulk")
+    async def cb_bulk_select_all_panels(event):
+        uid = event.sender_id
+        s = st(uid)
+        s["bo_panels"] = set(visible_panels(uid))
+        await _show_panel_selector(event, uid)
+
+    @bot.on(events.CallbackQuery(data=b"bopd"))
+    @auth("bulk")
+    async def cb_bulk_deselect_all_panels(event):
+        uid = event.sender_id
+        s = st(uid)
+        s["bo_panels"] = set()
+        await _show_panel_selector(event, uid)
+
+    @bot.on(events.CallbackQuery(data=b"bopc"))
+    @auth("bulk")
+    async def cb_bulk_panels_continue(event):
+        uid = event.sender_id
+        s = st(uid)
+        selected = s.get("bo_panels", set())
+        if not selected:
+            await answer(event, t("bo_no_panel_selected", uid), alert=True)
+            return
+        s["bo_inbounds"] = await _load_inbounds_for_panels(uid, selected)
+        s["bo_selected"] = set()
+        await _show_inbound_selector(event, uid)
+
+    # ── Per-panel shortcut (from panel sub-menu) ─────────────────────
+
     @bot.on(events.CallbackQuery(pattern=rb"^bo:(.+)$"))
     @auth("bulk")
     async def cb_bulk_op_start(event):
@@ -239,20 +454,14 @@ def register(bot):
         panel_name = event.pattern_match.group(1).decode()
         if panel_name not in visible_panels(uid):
             return
-        p = get_panel(panel_name)
-        inbounds = await p.list_inbounds()
-        inbounds = visible_inbounds(uid, panel_name, inbounds)
         s = st(uid)
-        s["bo_pid"] = panel_name
-        s["bo_inbounds"] = inbounds
-        selected = set()
-        s["bo_selected"] = selected
-        btns = _inbound_selector_buttons(uid, panel_name, inbounds, selected)
-        await reply(
-            event,
-            t("bo_select_inbounds", uid, selected=0, total=len(inbounds)),
-            buttons=btns,
-        )
+        s["bo_source"] = panel_name
+        s["bo_panels"] = {panel_name}
+        s["bo_inbounds"] = await _load_inbounds_for_panels(uid, {panel_name})
+        s["bo_selected"] = set()
+        await _show_inbound_selector(event, uid)
+
+    # ── Inbound multi-select ─────────────────────────────────────────
 
     @bot.on(events.CallbackQuery(pattern=rb"^boi:(.+):(\d+)$"))
     @auth("bulk")
@@ -261,61 +470,47 @@ def register(bot):
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
         s = st(uid)
-        selected = s.get("bo_selected", set())
-        if iid in selected:
-            selected.discard(iid)
-        else:
-            selected.add(iid)
-        s["bo_selected"] = selected
         inbounds = s.get("bo_inbounds", [])
-        btns = _inbound_selector_buttons(uid, panel_name, inbounds, selected)
-        await reply(
-            event,
-            t("bo_select_inbounds", uid, selected=len(selected), total=len(inbounds)),
-            buttons=btns,
-        )
+        # Block unsupported protocols
+        ib = next((i for pn, i in inbounds if pn == panel_name and i["id"] == iid), None)
+        if ib and ib.get("protocol", "") not in SUPPORTED_PROTOCOLS:
+            await answer(event, t("unsupported_protocol_short", uid, protocol=ib["protocol"]), alert=True)
+            return
+        selected = s.get("bo_selected", set())
+        key = (panel_name, iid)
+        if key in selected:
+            selected.discard(key)
+        else:
+            selected.add(key)
+        s["bo_selected"] = selected
+        await _show_inbound_selector(event, uid)
 
-    @bot.on(events.CallbackQuery(pattern=rb"^boia:(.+)$"))
+    @bot.on(events.CallbackQuery(data=b"boia"))
     @auth("bulk")
     async def cb_bulk_select_all(event):
         uid = event.sender_id
-        panel_name = event.pattern_match.group(1).decode()
         s = st(uid)
         inbounds = s.get("bo_inbounds", [])
-        selected = {ib["id"] for ib in inbounds}
+        selected = {(pn, ib["id"]) for pn, ib in inbounds if ib.get("protocol", "") in SUPPORTED_PROTOCOLS}
         s["bo_selected"] = selected
-        btns = _inbound_selector_buttons(uid, panel_name, inbounds, selected)
-        await reply(
-            event,
-            t("bo_select_inbounds", uid, selected=len(selected), total=len(inbounds)),
-            buttons=btns,
-        )
+        await _show_inbound_selector(event, uid)
 
-    @bot.on(events.CallbackQuery(pattern=rb"^boid:(.+)$"))
+    @bot.on(events.CallbackQuery(data=b"boid"))
     @auth("bulk")
     async def cb_bulk_deselect_all(event):
         uid = event.sender_id
-        panel_name = event.pattern_match.group(1).decode()
         s = st(uid)
-        inbounds = s.get("bo_inbounds", [])
-        selected = set()
-        s["bo_selected"] = selected
-        btns = _inbound_selector_buttons(uid, panel_name, inbounds, selected)
-        await reply(
-            event,
-            t("bo_select_inbounds", uid, selected=0, total=len(inbounds)),
-            buttons=btns,
-        )
+        s["bo_selected"] = set()
+        await _show_inbound_selector(event, uid)
 
-    @bot.on(events.CallbackQuery(pattern=rb"^boc:(.+)$"))
+    @bot.on(events.CallbackQuery(data=b"boic"))
     @auth("bulk")
     async def cb_bulk_continue(event):
         uid = event.sender_id
-        panel_name = event.pattern_match.group(1).decode()
         s = st(uid)
         selected = s.get("bo_selected", set())
         if not selected:
-            await answer(event,t("bo_no_inbound_selected", uid), alert=True)
+            await answer(event, t("bo_no_inbound_selected", uid), alert=True)
             return
         await reply(
             event,
@@ -324,7 +519,8 @@ def register(bot):
                 [Button.inline(t("btn_only_enabled", uid), b"bof:en")],
                 [Button.inline(t("btn_only_disabled", uid), b"bof:dis")],
                 [Button.inline(t("btn_all_accounts", uid), b"bof:all")],
-                [Button.inline(t("btn_back", uid), f"bo:{panel_name}".encode())],
+                [Button.inline(t("btn_back", uid), _back_data(uid)),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
             ],
         )
 
@@ -335,14 +531,14 @@ def register(bot):
         uid = event.sender_id
         s = st(uid)
         s["bo_filter"] = filt
-        panel_name = s["bo_pid"]
-        p = get_panel(panel_name)
         selected = s.get("bo_selected", set())
 
-        inbounds = await p.list_inbounds()
         collected = []
-        for ib in inbounds:
-            if ib["id"] not in selected:
+        for panel_name, iid in selected:
+            p = get_panel(panel_name)
+            inbounds = await p.list_inbounds()
+            ib = next((i for i in inbounds if i["id"] == iid), None)
+            if not ib:
                 continue
             protocol = ib["protocol"]
             settings = json.loads(ib.get("settings", "{}"))
@@ -353,14 +549,12 @@ def register(bot):
                 if filt == "dis" and enabled:
                     continue
                 client_id = p.get_client_id(client, protocol)
-                collected.append((client, ib["id"], client_id, protocol))
+                collected.append((client, ib["id"], client_id, protocol, panel_name))
 
         s["bo_clients"] = collected
         await _show_filter_result(event, uid, filt, len(collected))
 
     async def _show_filter_result(event, uid, filt, count):
-        s = st(uid)
-        panel_name = s["bo_pid"]
         filter_key = {"en": "filter_enabled", "dis": "filter_disabled", "all": "filter_all"}[filt]
         filter_label = t(filter_key, uid)
         await reply(
@@ -368,7 +562,9 @@ def register(bot):
             t("bo_filter_result", uid, filter=filter_label, count=count),
             buttons=[
                 [Button.inline(t("btn_days", uid), b"bot:d"), Button.inline(t("btn_traffic", uid), b"bot:t")],
-                [Button.inline(t("btn_back", uid), f"boc:{panel_name}".encode())],
+                [Button.inline(t("btn_export", uid), b"boe")],
+                [Button.inline(t("btn_back", uid), _back_data(uid)),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
             ],
         )
 
@@ -381,12 +577,17 @@ def register(bot):
         s["bo_op"] = op
         label = t("op_days", uid) if op == "d" else t("op_traffic", uid)
         filt = s.get("bo_filter", "all")
+        if filt == "manual":
+            back_data = _back_data(uid)
+        else:
+            back_data = f"bof:{filt}".encode()
         await reply(
             event,
             t("bo_type_title", uid, type=label),
             buttons=[
                 [Button.inline(t("btn_add", uid), b"boa:add"), Button.inline(t("btn_subtract", uid), b"boa:sub")],
-                [Button.inline(t("btn_back", uid), f"bof:{filt}".encode())],
+                [Button.inline(t("btn_back", uid), back_data),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
             ],
         )
 
@@ -408,7 +609,8 @@ def register(bot):
         await reply(
             event,
             prompt,
-            buttons=[[Button.inline(t("btn_back", uid), f"bot:{op}".encode())]],
+            buttons=[[Button.inline(t("btn_back", uid), f"bot:{op}".encode()),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^bosa:([yn])$"))
@@ -419,3 +621,120 @@ def register(bot):
         s = st(uid)
         s["bo_sau"] = choice == "y"
         await _bulk_op_execute(event, uid)
+
+    # ── Enter Manually ─────────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"bom"))
+    @auth("bulk")
+    async def cb_bulk_manual(event):
+        uid = event.sender_id
+        s = st(uid)
+        s["state"] = "bo_manual"
+        await reply(
+            event,
+            t("bo_manual_prompt", uid),
+            buttons=[[Button.inline(t("btn_back", uid), _back_data(uid)),
+                      Button.inline(t("btn_main_menu", uid), b"m")]],
+        )
+
+    # ── Export ──────────────────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"boe"))
+    @auth("bulk")
+    async def cb_bulk_export(event):
+        uid = event.sender_id
+        s = st(uid)
+        if not s.get("bo_clients"):
+            return
+        btns = [
+            [Button.inline(t("btn_pdf", uid), b"boef:pdf"),
+             Button.inline(t("btn_txt", uid), b"boef:txt")],
+            [Button.inline(t("btn_pdf_txt", uid), b"boef:both")],
+            [Button.inline(t("btn_back", uid), _back_data(uid)),
+             Button.inline(t("btn_main_menu", uid), b"m")],
+        ]
+        await reply(event, t("bo_export_title", uid), buttons=btns)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^boef:(pdf|txt|both)$"))
+    @auth("bulk")
+    async def cb_bulk_export_format(event):
+        uid = event.sender_id
+        fmt = event.pattern_match.group(1).decode()
+        s = st(uid)
+        clients = s.get("bo_clients", [])
+        if not clients:
+            return
+
+        await answer(event, t("bo_exporting", uid))
+
+        # Build inbound maps per panel
+        ib_maps: dict[str, dict[int, dict]] = {}
+        involved_panels = {pname for _, _, _, _, pname in clients}
+        for pname in involved_panels:
+            p = get_panel(pname)
+            ibs = await p.list_inbounds()
+            ib_maps[pname] = {ib["id"]: ib for ib in ibs}
+
+        unlim = t("unlimited", uid)
+        accounts = []
+        txt_lines = []
+        for client, iid, cid, protocol, panel_name in clients:
+            ib = ib_maps.get(panel_name, {}).get(iid)
+            if not ib:
+                continue
+            email = client.get("email", "")
+            addr = server_addrs.get(panel_name, "")
+            if protocol in SUPPORTED_PROTOCOLS:
+                proxy_link = build_client_link(client, ib, addr)
+            else:
+                proxy_link = ""
+            sub_url = sub_urls.get(panel_name)
+            sub_id = client.get("subId", "")
+            sub_link = f"{sub_url}/{sub_id}" if sub_url and sub_id else None
+            total = client.get("totalGB", 0)
+            traffic_str = format_bytes(total) if total > 0 else unlim
+            duration_str = format_expiry(client.get("expiryTime", 0), uid)
+            qr_img = make_qr(proxy_link) if proxy_link else None
+
+            accounts.append({
+                "email": email,
+                "proxy_link": proxy_link or "",
+                "qr_image": qr_img,
+                "traffic": traffic_str,
+                "duration": duration_str,
+                "sub_link": sub_link,
+                "panel": panel_name,
+            })
+
+            # Build TXT block
+            block = [f"Email: {email}"]
+            block.append(f"Panel: {panel_name}")
+            block.append(f"Traffic: {traffic_str}")
+            block.append(f"Duration: {duration_str}")
+            if proxy_link:
+                block.append(f"Link: {proxy_link}")
+            if sub_link:
+                block.append(f"Subscription: {sub_link}")
+            block.append("")
+            txt_lines.extend(block)
+
+        panels_str = ", ".join(sorted(involved_panels))
+
+        if fmt in ("pdf", "both") and accounts:
+            pdf_buf = generate_account_pdf(
+                accounts,
+                title=t("bo_export_pdf_title", uid, panel=panels_str),
+                uid=uid,
+            )
+            await bot.send_file(event.chat_id, pdf_buf,
+                                caption=t("bo_export_done", uid))
+
+        if fmt in ("txt", "both") and txt_lines:
+            txt_buf = io.BytesIO("\n".join(txt_lines).encode("utf-8"))
+            txt_buf.name = "accounts-bulk.txt"
+            await bot.send_file(event.chat_id, txt_buf,
+                                caption=t("bo_export_done", uid))
+
+        log_activity(uid, "bulk_export", json.dumps({
+            "panels": sorted(involved_panels), "format": fmt, "count": len(accounts),
+        }))

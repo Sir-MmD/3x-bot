@@ -8,7 +8,7 @@ from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot, vi
 from db import log_activity
 from helpers import format_bytes, format_expiry, make_qr, auth, reply, answer, search_result_buttons
 from i18n import t
-from panel import build_client_link
+from panel import build_client_link, SUPPORTED_PROTOCOLS
 from pdf_export import generate_account_pdf
 
 
@@ -102,6 +102,20 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
     s["sr_protocol"] = protocol
     s["sr_traffic"] = traffic
     s["sr_pid"] = found_panel
+
+    # Unsupported protocol guard
+    if protocol not in SUPPORTED_PROTOCOLS:
+        lines = [
+            t("sr_panel", uid, panel=found_panel),
+            t("sr_email", uid, email=actual_email),
+            t("sr_inbound", uid, remark=inbound.get("remark", "?")),
+            "",
+            t("unsupported_protocol", uid, protocol=protocol),
+        ]
+        btns = [[Button.inline(t("btn_back", uid), b"m")]]
+        await reply(event, "\n".join(lines), buttons=btns)
+        log_activity(uid, "search", json.dumps({"email": actual_email, "panel": found_panel}))
+        return
 
     up = (traffic or {}).get("up", 0)
     down = (traffic or {}).get("down", 0)

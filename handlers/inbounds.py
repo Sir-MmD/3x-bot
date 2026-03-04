@@ -8,8 +8,17 @@ from config import get_panel, clear, has_perm, user_perms, visible_panels, visib
 from db import log_activity
 from helpers import auth, reply, answer, format_client_line, format_bytes
 from i18n import t
+from panel import SUPPORTED_PROTOCOLS
 
 _PAGE_SIZE = 50
+
+
+def _get_inbound_protocol(inbounds: list[dict], iid: int) -> str | None:
+    """Return protocol for an inbound by ID, or None if not found."""
+    for ib in inbounds:
+        if ib["id"] == iid:
+            return ib.get("protocol", "")
+    return None
 
 
 def register(bot):
@@ -117,9 +126,11 @@ def register(bot):
                         continue
                 active += 1
             total = len(clients)
-            label = f"{icon} {ib['remark']} | {ib['port']} | [{active}/{total}]"
+            proto_warn = "" if ib.get("protocol", "") in SUPPORTED_PROTOCOLS else " ⚠️"
+            label = f"{icon} {ib['remark']} | {ib['port']} | [{active}/{total}]{proto_warn}"
             btns.append([Button.inline(label, f"ib:{panel_name}:{ib['id']}".encode())])
-        btns.append([Button.inline(t("btn_back", uid), f"pm:{panel_name}".encode())])
+        btns.append([Button.inline(t("btn_back", uid), f"pm:{panel_name}".encode()),
+                     Button.inline(t("btn_main_menu", uid), b"m")])
         await reply(event, t("inbound_list_title", uid, panel=panel_name), buttons=btns)
 
     # ── Client list ─────────────────────────────────────────────────────
@@ -134,7 +145,8 @@ def register(bot):
         if not inbound:
             await reply(
                 event, t("inbound_not_found", uid),
-                buttons=[[Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())]],
+                buttons=[[Button.inline(t("btn_back", uid), f"il:{panel_name}".encode()),
+                          Button.inline(t("btn_main_menu", uid), b"m")]],
             )
             return
 
@@ -142,15 +154,65 @@ def register(bot):
         clients = settings.get("clients", [])
         stats = {cs["email"]: cs for cs in inbound.get("clientStats") or []}
 
+        # Parse stream settings for transport/security info
+        try:
+            stream = json.loads(inbound.get("streamSettings", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            stream = {}
+        transport = stream.get("network", "—")
+        security = stream.get("security", "—")
+        protocol = inbound.get("protocol", "—")
+
+        # Count user states
+        now_ms = int(time.time() * 1000)
+        active_count = 0
+        depleted_count = 0
+        disabled_count = 0
+        client_up = 0
+        client_down = 0
+        for c in clients:
+            email = c.get("email", "")
+            tr = stats.get(email)
+            if tr:
+                client_up += tr.get("up", 0)
+                client_down += tr.get("down", 0)
+            if not c.get("enable", True):
+                disabled_count += 1
+                continue
+            exp = c.get("expiryTime", 0)
+            if exp > 0 and exp < now_ms:
+                depleted_count += 1
+                continue
+            limit = c.get("totalGB", 0)
+            if limit > 0 and tr and tr.get("up", 0) + tr.get("down", 0) >= limit:
+                depleted_count += 1
+                continue
+            active_count += 1
+
         total = len(clients)
         pages = max(1, math.ceil(total / _PAGE_SIZE))
         page = max(1, min(page, pages))
         start = (page - 1) * _PAGE_SIZE
         page_clients = clients[start:start + _PAGE_SIZE]
 
+        # Inbound info header
+        ib_up = inbound.get("up", 0)
+        ib_down = inbound.get("down", 0)
         lines = [t("client_list_title", uid,
                     remark=inbound["remark"], panel=panel_name,
                     count=total, page=page, pages=pages), ""]
+        lines.append(t("ib_info_protocol", uid, protocol=protocol, security=security))
+        lines.append(t("ib_info_transport", uid, transport=transport))
+        lines.append(t("ib_info_port", uid, port=inbound.get("port", "—")))
+        lines.append(t("ib_info_users", uid, total=total,
+                        active=active_count, depleted=depleted_count,
+                        disabled=disabled_count))
+        lines.append(t("ib_info_client_traffic", uid,
+                        traffic=format_bytes(client_up + client_down)))
+        lines.append(t("ib_info_alltime", uid,
+                        up=format_bytes(ib_up), down=format_bytes(ib_down),
+                        total=format_bytes(ib_up + ib_down)))
+        lines.append("")
         for c in page_clients:
             tr = stats.get(c.get("email", ""))
             lines.append(format_client_line(c, tr, uid))
@@ -179,7 +241,8 @@ def register(bot):
                 Button.inline(t("btn_reset_traffic", uid), f"ibrt:{panel_name}:{iid}".encode()),
                 Button.inline(t("btn_delete_depleted", uid), f"ibdd:{panel_name}:{iid}".encode()),
             ])
-        btns.append([Button.inline(t("btn_back", uid), f"il:{panel_name}".encode())])
+        btns.append([Button.inline(t("btn_back", uid), f"il:{panel_name}".encode()),
+                     Button.inline(t("btn_main_menu", uid), b"m")])
         await reply(event, text, buttons=btns)
 
     @bot.on(events.CallbackQuery(pattern=rb"^ib:(.+):(\d+)$"))
@@ -188,6 +251,12 @@ def register(bot):
         uid = event.sender_id
         panel_name = event.pattern_match.group(1).decode()
         iid = int(event.pattern_match.group(2))
+        p = get_panel(panel_name)
+        inbounds = await p.list_inbounds()
+        proto = _get_inbound_protocol(inbounds, iid)
+        if proto is not None and proto not in SUPPORTED_PROTOCOLS:
+            await answer(event, t("unsupported_protocol_short", uid, protocol=proto), alert=True)
+            return
         await _show_client_list(event, uid, panel_name, iid)
 
     @bot.on(events.CallbackQuery(pattern=rb"^ibp:(.+):(\d+):(\d+)$"))
@@ -209,6 +278,11 @@ def register(bot):
         iid = int(event.pattern_match.group(2))
         allowed = user_inbounds(uid, panel_name)
         if allowed is not None and iid not in allowed:
+            return
+        p = get_panel(panel_name)
+        proto = _get_inbound_protocol(await p.list_inbounds(), iid)
+        if proto is not None and proto not in SUPPORTED_PROTOCOLS:
+            await answer(event, t("unsupported_protocol_short", uid, protocol=proto), alert=True)
             return
         await reply(
             event,
@@ -234,7 +308,8 @@ def register(bot):
         except Exception as e:
             await reply(
                 event, t("error_msg", uid, error=e),
-                buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode()),
+                          Button.inline(t("btn_main_menu", uid), b"m")]],
             )
             return
         log_activity(uid, "reset_all_traffic", json.dumps({"panel": panel_name, "inbound": iid}))
@@ -251,6 +326,11 @@ def register(bot):
         iid = int(event.pattern_match.group(2))
         allowed = user_inbounds(uid, panel_name)
         if allowed is not None and iid not in allowed:
+            return
+        p = get_panel(panel_name)
+        proto = _get_inbound_protocol(await p.list_inbounds(), iid)
+        if proto is not None and proto not in SUPPORTED_PROTOCOLS:
+            await answer(event, t("unsupported_protocol_short", uid, protocol=proto), alert=True)
             return
         await reply(
             event,
@@ -276,7 +356,8 @@ def register(bot):
         except Exception as e:
             await reply(
                 event, t("error_msg", uid, error=e),
-                buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
+                buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode()),
+                          Button.inline(t("btn_main_menu", uid), b"m")]],
             )
             return
         log_activity(uid, "delete_depleted", json.dumps({"panel": panel_name, "inbound": iid}))

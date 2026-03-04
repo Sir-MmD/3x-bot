@@ -6,6 +6,8 @@ from urllib.parse import quote
 
 import httpx
 
+SUPPORTED_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks"}
+
 _CACHE_TTL = 30  # seconds
 
 

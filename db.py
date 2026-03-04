@@ -80,6 +80,11 @@ def init_db():
         con.execute("ALTER TABLE db_admins ADD COLUMN inbounds TEXT NOT NULL DEFAULT '{}'")
     except sqlite3.OperationalError:
         pass  # column already exists
+    # Migration: add sort_order column to db_panels
+    try:
+        con.execute("ALTER TABLE db_panels ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     con.commit()
     con.close()
 
@@ -338,7 +343,7 @@ def get_db_panels() -> list[dict]:
         return _panels_cache
     con = sqlite3.connect(_DB_PATH)
     con.row_factory = sqlite3.Row
-    rows = con.execute("SELECT * FROM db_panels").fetchall()
+    rows = con.execute("SELECT * FROM db_panels ORDER BY sort_order, created_at").fetchall()
     con.close()
     result = [dict(r) for r in rows]
     _panels_cache = result
@@ -349,10 +354,11 @@ def add_db_panel(name: str, url: str, username: str, password: str,
                  proxy: str, sub_url: str, added_by: int):
     global _panels_cache
     con = sqlite3.connect(_DB_PATH)
+    max_order = con.execute("SELECT COALESCE(MAX(sort_order), -1) FROM db_panels").fetchone()[0]
     con.execute(
-        "INSERT INTO db_panels (name, url, username, password, proxy, sub_url, added_by, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (name, url, username, password, proxy, sub_url, added_by, time.time()),
+        "INSERT INTO db_panels (name, url, username, password, proxy, sub_url, added_by, created_at, sort_order)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (name, url, username, password, proxy, sub_url, added_by, time.time(), max_order + 1),
     )
     con.commit()
     con.close()
@@ -387,6 +393,20 @@ def update_db_panel_field(name: str, field: str, value: str):
     con = sqlite3.connect(_DB_PATH)
     con.execute(f"UPDATE db_panels SET {field} = ? WHERE name = ?", (value, name))
     con.commit()
+    con.close()
+    _panels_cache = None
+
+
+def swap_panel_order(name_a: str, name_b: str):
+    """Swap sort_order values of two panels."""
+    global _panels_cache
+    con = sqlite3.connect(_DB_PATH)
+    row_a = con.execute("SELECT sort_order FROM db_panels WHERE name = ?", (name_a,)).fetchone()
+    row_b = con.execute("SELECT sort_order FROM db_panels WHERE name = ?", (name_b,)).fetchone()
+    if row_a and row_b:
+        con.execute("UPDATE db_panels SET sort_order = ? WHERE name = ?", (row_b[0], name_a))
+        con.execute("UPDATE db_panels SET sort_order = ? WHERE name = ?", (row_a[0], name_b))
+        con.commit()
     con.close()
     _panels_cache = None
 

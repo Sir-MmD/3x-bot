@@ -6,8 +6,8 @@ from telethon.tl.functions.bots import SetBotCommandsRequest
 from telethon.tl.types import BotCommand, BotCommandScopeDefault
 
 import config
-from config import bot, cfg, load_db_panels
-from db import init_db
+from config import bot, cfg, load_db_panels, VERSION, AUTHOR, start_auto_backup
+from db import init_db, get_setting
 from i18n import t
 from handlers import menu, search, modify, create, inbounds, bulk_ops, owner, router
 
@@ -45,7 +45,15 @@ async def main():
         except Exception:
             pass
 
-    print("Bot is running...")
+    # Resume auto-backup if configured
+    ab_interval = get_setting("auto_backup_interval")
+    if ab_interval:
+        try:
+            start_auto_backup(int(ab_interval))
+        except (ValueError, TypeError):
+            pass
+
+    print(f"3x-bot v{VERSION} by {AUTHOR} — Bot is running...")
     await bot.run_until_disconnected()
 
 
