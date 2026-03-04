@@ -220,7 +220,7 @@ def _inbound_selector_buttons(uid, panel_name, inbounds, selected):
     for ib in inbounds:
         iid = ib["id"]
         icon = "\u2705" if iid in selected else "\u2b1c"
-        label = f"{icon} {ib['remark']}"
+        label = f"{icon} {ib['remark']} | {ib['port']}"
         btns.append([Button.inline(label, f"boi:{panel_name}:{iid}".encode())])
     btns.append([
         Button.inline(t("btn_select_all", uid), f"boia:{panel_name}".encode()),

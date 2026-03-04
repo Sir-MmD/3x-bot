@@ -456,7 +456,8 @@ async def _show_admin_inbound_picker(event, uid: int, target_uid: int, panel_nam
     for ib in inbound_list:
         iid = ib["id"]
         on = select_all or iid in selected
-        label = t("op_perm_on", uid, perm=ib["remark"]) if on else t("op_perm_off", uid, perm=ib["remark"])
+        desc = f"{ib['remark']} | {ib['port']}"
+        label = t("op_perm_on", uid, perm=desc) if on else t("op_perm_off", uid, perm=desc)
         btns.append([Button.inline(label, f"op:eipt:{target_uid}:{panel_name}:{iid}".encode())])
     if select_all:
         btns.append([Button.inline(t("btn_deselect_all", uid), f"op:eips:{target_uid}:{panel_name}".encode())])
@@ -499,7 +500,8 @@ async def _show_public_inbound_picker(event, uid: int, panel_name: str):
     for ib in inbound_list:
         iid = ib["id"]
         on = select_all or iid in selected
-        label = t("op_perm_on", uid, perm=ib["remark"]) if on else t("op_perm_off", uid, perm=ib["remark"])
+        desc = f"{ib['remark']} | {ib['port']}"
+        label = t("op_perm_on", uid, perm=desc) if on else t("op_perm_off", uid, perm=desc)
         btns.append([Button.inline(label, f"op:eppit:{panel_name}:{iid}".encode())])
     if select_all:
         btns.append([Button.inline(t("btn_deselect_all", uid), f"op:eppis:{panel_name}".encode())])

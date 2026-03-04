@@ -63,7 +63,7 @@ def register(bot):
                         continue
                 active += 1
             total = len(clients)
-            label = f"{icon} {ib['remark']} | {ib['port']} [{active}/{total}]"
+            label = f"{icon} {ib['remark']} | {ib['port']} | [{active}/{total}]"
             btns.append([Button.inline(label, f"ib:{panel_name}:{ib['id']}".encode())])
         btns.append([Button.inline(t("btn_back", uid), f"pm:{panel_name}".encode())])
         await reply(event, t("inbound_list_title", uid, panel=panel_name), buttons=btns)
