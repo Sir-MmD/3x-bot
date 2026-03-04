@@ -183,10 +183,11 @@ def get_display_name(uid: int) -> str:
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
-def auth(func_or_perm=None):
+def auth(func_or_perm=None, *extra_perms):
     """
-    @auth           — any authorized user
-    @auth("create") — requires 'create' permission
+    @auth                        — any authorized user
+    @auth("create")              — requires 'create' permission
+    @auth("search", "search_simple") — requires any of the listed perms
     """
     if callable(func_or_perm):
         # @auth without parentheses
@@ -204,12 +205,12 @@ def auth(func_or_perm=None):
             return await func(event)
         return wrapper
 
-    # @auth("perm") with parentheses
-    perm = func_or_perm
+    # @auth("perm") or @auth("perm1", "perm2") with parentheses
+    perms = [func_or_perm] + list(extra_perms)
     def decorator(func):
         async def wrapper(event):
             uid = event.sender_id
-            if not has_perm(uid, perm):
+            if not any(has_perm(uid, p) for p in perms):
                 return
             if get_user_lang(uid) is None:
                 await _show_lang_picker(event, uid)
@@ -297,7 +298,7 @@ def build_client_dict(
 
 def main_menu_buttons(uid: int):
     btns = []
-    if has_perm(uid, "search"):
+    if has_perm(uid, "search") or has_perm(uid, "search_simple"):
         btns.append([Button.inline(t("btn_search", uid), b"s")])
     perms = user_perms(uid)
     if perms & {"create", "bulk"}:
@@ -309,15 +310,18 @@ def main_menu_buttons(uid: int):
     return btns
 
 
-def search_result_buttons(uid: int, enabled: bool):
-    """Build search result action buttons filtered by user permissions."""
+def search_result_buttons(uid: int, status: str):
+    """Build search result action buttons filtered by user permissions.
+
+    status: "active", "depleted", or "disabled"
+    """
     btns = []
     row1 = []
     if has_perm(uid, "toggle"):
-        if enabled:
-            row1.append(Button.inline(t("btn_disable", uid), b"dis"))
-        else:
+        if status == "disabled":
             row1.append(Button.inline(t("btn_enable", uid), b"en"))
+        else:
+            row1.append(Button.inline(t("btn_disable", uid), b"dis"))
     if has_perm(uid, "remove"):
         row1.append(Button.inline(t("btn_remove", uid), b"rm"))
     if row1:
@@ -340,14 +344,13 @@ def format_client_line(client: dict, traffic: dict | None, uid: int) -> str:
     """Format one client as a text line for the client list."""
     email = client.get("email", "?")
     enabled = client.get("enable", True)
-    icon = "\u2705" if enabled else "\U0001f534"
 
     # Traffic
     limit = client.get("totalGB", 0)
+    used = 0
+    if traffic:
+        used = traffic.get("up", 0) + traffic.get("down", 0)
     if limit > 0:
-        used = 0
-        if traffic:
-            used = traffic.get("up", 0) + traffic.get("down", 0)
         traffic_str = f"{format_bytes(used)}/{format_bytes(limit)}"
     else:
         traffic_str = "\u221e"
@@ -368,10 +371,19 @@ def format_client_line(client: dict, traffic: dict | None, uid: int) -> str:
             days = dur // 86_400_000
             dur_str = f"{days}d"
 
+    # 3-state icon: ✅ active, ⛔ depleted, 🔴 disabled
+    if not enabled:
+        icon = "\U0001f534"  # 🔴
+    else:
+        now_ms = int(time.time() * 1000)
+        expired = exp > 0 and exp < now_ms
+        traffic_exceeded = limit > 0 and used >= limit
+        icon = "\u26d4" if (expired or traffic_exceeded) else "\u2705"  # ⛔ or ✅
+
     return f"`{email}` {icon} | {traffic_str} | {dur_str}"
 
 
 def main_menu_text(uid: int) -> str:
-    if has_perm(uid, "search"):
+    if has_perm(uid, "search") or has_perm(uid, "search_simple"):
         return t("main_menu", uid)
     return t("main_menu_no_search", uid)

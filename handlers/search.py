@@ -1,9 +1,10 @@
 import asyncio
 import json
+import time
 
 from telethon import events, Button
 
-from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot, visible_panels, user_inbounds
+from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot, visible_panels, user_inbounds, has_perm
 from db import log_activity
 from helpers import format_bytes, format_expiry, make_qr, auth, reply, search_result_buttons
 from i18n import t
@@ -102,16 +103,58 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
     s["sr_traffic"] = traffic
     s["sr_pid"] = found_panel
 
-    enabled = client.get("enable", True)
-
-    online_list = await p.get_online_clients()
-    online = actual_email in online_list
-
     up = (traffic or {}).get("up", 0)
     down = (traffic or {}).get("down", 0)
     total = client.get("totalGB", 0)
     all_time = (traffic or {}).get("allTime", 0)
     remaining = max(0, total - up - down) if total > 0 else 0
+
+    # 3-state status: active / depleted / disabled
+    enabled = client.get("enable", True)
+    if not enabled:
+        status = "disabled"
+    else:
+        now_ms = int(time.time() * 1000)
+        exp = client.get("expiryTime", 0)
+        expired = exp > 0 and exp < now_ms
+        traffic_exceeded = total > 0 and (up + down) >= total
+        status = "depleted" if (expired or traffic_exceeded) else "active"
+
+    status_key = {"active": "sr_status_active", "depleted": "sr_status_depleted", "disabled": "sr_status_disabled"}[status]
+
+    # Check if user only has search_simple (not full search)
+    simple_only = has_perm(uid, "search_simple") and not has_perm(uid, "search")
+
+    if simple_only:
+        # Simplified result: email, status, remaining traffic, remaining days
+        unlim = t("unlimited", uid)
+        remaining_gb = f"{remaining / (1024**3):.2f} GB" if total > 0 else unlim
+        exp = client.get("expiryTime", 0)
+        if exp == 0:
+            remaining_days = unlim
+        else:
+            now_ms = int(time.time() * 1000)
+            if exp < 0:
+                dur_ms = abs(exp)
+            else:
+                dur_ms = exp - now_ms
+            if dur_ms <= 0:
+                remaining_days = t("expired", uid)
+            else:
+                remaining_days = f"{dur_ms // 86_400_000}d"
+        lines = [
+            t("sr_email", uid, email=actual_email),
+            t(status_key, uid),
+            t("sr_simple_traffic", uid, remaining=remaining_gb),
+            t("sr_simple_duration", uid, remaining=remaining_days),
+        ]
+        btns = [[Button.inline(t("btn_back", uid), b"m")]]
+        await reply(event, "\n".join(lines), buttons=btns)
+        log_activity(uid, "search", json.dumps({"email": actual_email, "panel": found_panel}))
+        return
+
+    online_list = await p.get_online_clients()
+    online = actual_email in online_list
 
     addr = server_addrs[found_panel]
     sub_url = sub_urls[found_panel]
@@ -123,7 +166,7 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
     lines = [
         t("sr_panel", uid, panel=found_panel),
         t("sr_email", uid, email=actual_email),
-        t("sr_status_enabled", uid) if enabled else t("sr_status_disabled", uid),
+        t(status_key, uid),
         t("sr_online_yes", uid) if online else t("sr_online_no", uid),
         "",
         t("sr_traffic", uid, up=format_bytes(up), down=format_bytes(down)),
@@ -140,7 +183,7 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
         lines += ["", f"`{proxy_link}`"]
     text = "\n".join(lines)
 
-    btns = search_result_buttons(uid, enabled)
+    btns = search_result_buttons(uid, status)
 
     if proxy_link:
         qr = make_qr(proxy_link)
@@ -153,7 +196,7 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
 
 def register(bot):
     @bot.on(events.CallbackQuery(data=b"s"))
-    @auth("search")
+    @auth("search", "search_simple")
     async def cb_search(event):
         uid = event.sender_id
         await reply(
@@ -163,7 +206,7 @@ def register(bot):
         )
 
     @bot.on(events.CallbackQuery(pattern=rb"^srp:(.+)$"))
-    @auth("search")
+    @auth("search", "search_simple")
     async def cb_search_panel_select(event):
         panel_name = event.pattern_match.group(1).decode()
         s = st(event.sender_id)
@@ -238,7 +281,7 @@ def register(bot):
         await reply(event, text, buttons=[[Button.inline(t("btn_back", uid), b"m")]])
 
     @bot.on(events.CallbackQuery(data=b"sr"))
-    @auth("search")
+    @auth("search", "search_simple")
     async def cb_back_to_search(event):
         s = st(event.sender_id)
         s["state"] = None
