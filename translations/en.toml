@@ -160,6 +160,16 @@ bulk_pdf = "📄 Bulk accounts PDF"
 
 # ── Panel Sub-menu ──────────────────────────────────────────────────────────
 panel_menu_title = "🖥 **{panel}**"
+pm_stats = """🖥 **{panel}**
+
+👥 Total Clients: {total_clients}
+🟢 Online: {online}
+⛔ Depleted: {depleted}
+🔴 Disabled: {disabled}
+
+📋 Total Inbounds: {total_inbounds}
+📊 Total Usage: {total_usage}
+📤 Sent / 📥 Received: {sent} / {received}"""
 btn_inbound_list_short = "📋 Inbound List"
 
 # ── Inbounds ─────────────────────────────────────────────────────────────────

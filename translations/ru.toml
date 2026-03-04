@@ -160,6 +160,16 @@ bulk_pdf = "📄 PDF массовых аккаунтов"
 
 # ── Panel Sub-menu ──────────────────────────────────────────────────────────
 panel_menu_title = "🖥 **{panel}**"
+pm_stats = """🖥 **{panel}**
+
+👥 Всего клиентов: {total_clients}
+🟢 Онлайн: {online}
+⛔ Исчерпано: {depleted}
+🔴 Отключено: {disabled}
+
+📋 Всего инбаундов: {total_inbounds}
+📊 Общий трафик: {total_usage}
+📤 Отправлено / 📥 Получено: {sent} / {received}"""
 btn_inbound_list_short = "📋 Список инбаундов"
 
 # ── Inbounds ─────────────────────────────────────────────────────────────────

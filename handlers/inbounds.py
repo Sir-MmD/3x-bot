@@ -6,7 +6,7 @@ from telethon import events, Button
 
 from config import get_panel, clear, has_perm, user_perms, visible_panels, visible_inbounds, user_inbounds
 from db import log_activity
-from helpers import auth, reply, format_client_line
+from helpers import auth, reply, format_client_line, format_bytes
 from i18n import t
 
 _PAGE_SIZE = 50
@@ -23,6 +23,60 @@ def register(bot):
         panel_name = event.pattern_match.group(1).decode()
         if panel_name not in visible_panels(uid):
             return
+
+        p = get_panel(panel_name)
+        inbounds = await p.list_inbounds()
+        vis = visible_inbounds(uid, panel_name, inbounds)
+
+        # Collect stats from visible inbounds
+        now_ms = int(time.time() * 1000)
+        total_clients = 0
+        depleted = 0
+        disabled = 0
+        total_up = 0
+        total_down = 0
+        all_emails: set[str] = set()
+
+        for ib in vis:
+            clients = json.loads(ib.get("settings", "{}")).get("clients", [])
+            stats = {cs["email"]: cs for cs in ib.get("clientStats") or []}
+            for c in clients:
+                total_clients += 1
+                email = c.get("email", "")
+                all_emails.add(email)
+                tr = stats.get(email)
+                if tr:
+                    total_up += tr.get("up", 0)
+                    total_down += tr.get("down", 0)
+                if not c.get("enable", True):
+                    disabled += 1
+                    continue
+                exp = c.get("expiryTime", 0)
+                if exp > 0 and exp < now_ms:
+                    depleted += 1
+                    continue
+                limit = c.get("totalGB", 0)
+                if limit > 0 and tr and tr.get("up", 0) + tr.get("down", 0) >= limit:
+                    depleted += 1
+
+        # Online count
+        try:
+            online_emails = await p.get_online_clients()
+            online_count = sum(1 for e in online_emails if e in all_emails)
+        except Exception:
+            online_count = 0
+
+        text = t("pm_stats", uid,
+                  panel=panel_name,
+                  total_clients=total_clients,
+                  online=online_count,
+                  depleted=depleted,
+                  disabled=disabled,
+                  total_inbounds=len(vis),
+                  total_usage=format_bytes(total_up + total_down),
+                  sent=format_bytes(total_up),
+                  received=format_bytes(total_down))
+
         perms = user_perms(uid)
         btns = []
         if perms & {"create", "bulk"}:
@@ -30,7 +84,7 @@ def register(bot):
         if has_perm(uid, "bulk"):
             btns.append([Button.inline(t("btn_bulk_operation", uid), f"bo:{panel_name}".encode())])
         btns.append([Button.inline(t("btn_back", uid), b"m")])
-        await reply(event, t("panel_menu_title", uid, panel=panel_name), buttons=btns)
+        await reply(event, text, buttons=btns)
 
     # ── Inbound list ────────────────────────────────────────────────────
 
@@ -178,7 +232,6 @@ def register(bot):
         try:
             await p.reset_all_client_traffics(iid)
         except Exception as e:
-            from helpers import format_bytes  # noqa: avoid circular at top
             await reply(
                 event, t("error_msg", uid, error=e),
                 buttons=[[Button.inline(t("btn_back", uid), f"ib:{panel_name}:{iid}".encode())]],
