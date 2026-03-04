@@ -6,7 +6,7 @@ from telethon import events, Button
 
 from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot, visible_panels, user_inbounds, has_perm
 from db import log_activity
-from helpers import format_bytes, format_expiry, make_qr, auth, reply, search_result_buttons
+from helpers import format_bytes, format_expiry, make_qr, auth, reply, answer, search_result_buttons
 from i18n import t
 from panel import build_client_link
 from pdf_export import generate_account_pdf
@@ -334,6 +334,6 @@ def register(bot):
             title=t("pdf_account_title", uid, email=email),
             uid=uid,
         )
-        await event.answer(t("generating_pdf", uid))
+        await answer(event,t("generating_pdf", uid))
         await bot.send_file(event.chat_id, pdf, caption=t("account_pdf", uid))
         log_activity(uid, "pdf_export", json.dumps({"email": email, "panel": pid}))

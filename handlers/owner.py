@@ -25,7 +25,7 @@ from db import (
     _lang_cache, _DB_PATH,
 )
 import db as _db_mod
-from helpers import auth, reply, get_display_name
+from helpers import auth, reply, answer, get_display_name
 from db import log_activity, get_user_profile, upsert_user_profile
 from i18n import t
 from panel import PanelClient
@@ -942,7 +942,7 @@ def register(bot):
             return
         _, current_owner, _panels, _ib = db_admins[target_uid]
         if current_owner and _count_owners() <= 1:
-            await event.answer(t("op_cannot_demote_last_owner", uid), alert=True)
+            await answer(event,t("op_cannot_demote_last_owner", uid), alert=True)
             return
         new_owner = not current_owner
         update_db_admin_owner(target_uid, new_owner)
@@ -956,7 +956,7 @@ def register(bot):
         uid = event.sender_id
         target_uid = int(event.pattern_match.group(1))
         if target_uid == uid:
-            await event.answer(t("op_cannot_remove_self", uid), alert=True)
+            await answer(event,t("op_cannot_remove_self", uid), alert=True)
             return
         if target_uid == owner_id:
             return
@@ -1135,7 +1135,7 @@ def register(bot):
         s.pop("op_ei_all", None)
         s.pop("op_ei_selected", None)
         s.pop("op_ei_inbound_list", None)
-        await event.answer(t("op_inbounds_saved", uid))
+        await answer(event,t("op_inbounds_saved", uid))
         await _show_admin_inbound_panel_list(event, uid, target_uid)
 
     # ── Add Admin ───────────────────────────────────────────────────────
@@ -1619,7 +1619,7 @@ def register(bot):
         s.pop("op_epi_all", None)
         s.pop("op_epi_selected", None)
         s.pop("op_epi_inbound_list", None)
-        await event.answer(t("op_public_inbounds_saved", uid))
+        await answer(event,t("op_public_inbounds_saved", uid))
         await _show_public_inbound_panel_list(event, uid)
 
     @bot.on(events.CallbackQuery(data=b"op:efj"))

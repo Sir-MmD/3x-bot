@@ -6,7 +6,7 @@ from telethon import events, Button
 
 from config import get_panel, st, clear, bot, visible_panels, visible_inbounds
 from db import log_activity
-from helpers import auth, reply
+from helpers import auth, reply, answer
 from i18n import t
 
 
@@ -315,7 +315,7 @@ def register(bot):
         s = st(uid)
         selected = s.get("bo_selected", set())
         if not selected:
-            await event.answer(t("bo_no_inbound_selected", uid), alert=True)
+            await answer(event,t("bo_no_inbound_selected", uid), alert=True)
             return
         await reply(
             event,
