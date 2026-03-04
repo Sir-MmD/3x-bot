@@ -1,3 +1,8 @@
+import json
+import re
+from base64 import b64decode
+from urllib.parse import unquote
+
 from telethon import events, Button
 
 from config import st, has_perm
@@ -8,6 +13,55 @@ from handlers.modify import handle_modify_traffic_input, handle_modify_days_inpu
 from handlers.create import handle_create_input, handle_bulk_create_input
 from handlers.bulk_ops import handle_bulk_op_input
 from handlers.owner import handle_owner_input, handle_owner_restore
+
+_PROXY_LINK_RE = re.compile(r"^(vless|vmess|trojan|ss)://", re.IGNORECASE)
+
+
+def _extract_email_from_link(text: str) -> str | None:
+    """Extract the email from a proxy link's tag/remark.
+
+    Handles raw proxy links and base64-encoded links.
+    Tag format is '{remark}-{email}', so we take everything after the last '-'.
+    For vmess (base64 JSON), email is extracted from the 'ps' field.
+    """
+    text = text.strip()
+
+    # If not a proxy link, try base64-decoding first
+    if not _PROXY_LINK_RE.match(text):
+        try:
+            padded = text + "=" * (4 - len(text) % 4) if len(text) % 4 else text
+            decoded = b64decode(padded).decode()
+            # Could be multiple lines; find the first proxy link
+            for line in decoded.splitlines():
+                line = line.strip()
+                if _PROXY_LINK_RE.match(line):
+                    text = line
+                    break
+            else:
+                return None
+        except Exception:
+            return None
+
+    scheme = text.split("://", 1)[0].lower()
+
+    if scheme == "vmess":
+        b64_part = text.split("://", 1)[1].split("#")[0].strip()
+        padding = 4 - len(b64_part) % 4
+        if padding != 4:
+            b64_part += "=" * padding
+        try:
+            cfg = json.loads(b64decode(b64_part).decode())
+            tag = cfg.get("ps", "")
+        except Exception:
+            return None
+    else:
+        # vless, trojan, ss — email is in the URL fragment
+        fragment = text.split("#", 1)[1] if "#" in text else ""
+        tag = unquote(fragment)
+
+    if not tag or "-" not in tag:
+        return None
+    return tag.rsplit("-", 1)[-1]
 
 
 def register(bot):
@@ -59,7 +113,7 @@ def register(bot):
         # ── Default: search ──────────────────────────────────────────────
         if not has_perm(uid, "search"):
             return
-        email = event.text.strip()
+        email = _extract_email_from_link(event.text) or event.text.strip()
         searching_msg = await event.respond(t("searching", uid))
         try:
             await show_search_result(event, uid, email)
