@@ -160,6 +160,16 @@ bulk_pdf = "📄 PDF حساب‌های گروهی"
 
 # ── Panel Sub-menu ──────────────────────────────────────────────────────────
 panel_menu_title = "🖥 **{panel}**"
+pm_stats = """🖥 **{panel}**
+
+👥 کل کاربران: {total_clients}
+🟢 آنلاین: {online}
+⛔ مصرف‌شده: {depleted}
+🔴 غیرفعال: {disabled}
+
+📋 کل اینباندها: {total_inbounds}
+📊 مصرف کل: {total_usage}
+📤 ارسال / 📥 دریافت: {sent} / {received}"""
 btn_inbound_list_short = "📋 لیست اینباند"
 
 # ── Inbounds ─────────────────────────────────────────────────────────────────
