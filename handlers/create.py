@@ -85,7 +85,8 @@ async def _create_client(event, uid: int):
     if proxy_link:
         lines += ["", f"`{proxy_link}`"]
     text = "\n".join(lines)
-    btns = [[Button.inline(t("btn_back", uid), b"m")]]
+    back_data = f"ib:{panel_name}:{iid}".encode()
+    btns = [[Button.inline(t("btn_back", uid), back_data)]]
     clear(uid)
 
     if proxy_link:
@@ -217,8 +218,9 @@ async def _bulk_create_clients(event, uid: int):
         for email, err in failed[:5]:
             lines.append(f"  \u2022 `{email}`: {err}")
     text = "\n".join(lines)
+    back_data = f"ib:{panel_name}:{iid}".encode()
     await bot.send_message(
-        event.chat_id, text, buttons=[[Button.inline(t("btn_back", uid), b"m")]],
+        event.chat_id, text, buttons=[[Button.inline(t("btn_back", uid), back_data)]],
         parse_mode="md",
     )
 
