@@ -47,6 +47,7 @@ a = Analysis(
         'handlers.owner',
         'handlers.router',
         '_cffi_backend',
+        'socksio',
     ] + _all_hiddenimports,
     hookspath=[],
     hooksconfig={},
