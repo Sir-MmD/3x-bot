@@ -387,6 +387,7 @@ def search_result_buttons(uid: int, status: str):
     if has_perm(uid, "modify"):
         row2.append(Button.inline(t("btn_traffic", uid), b"mt"))
         row2.append(Button.inline(t("btn_days", uid), b"md"))
+        row2.append(Button.inline(t("btn_renew", uid), b"rn"))
     if row2:
         btns.append(row2)
     row3 = []
