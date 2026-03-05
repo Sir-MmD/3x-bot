@@ -65,7 +65,9 @@ Everything else (admins, panels, public mode, force-join, permissions) is manage
 
 > **Upgrading from v0.5.x**: Old flat config.toml files are not compatible. The bot will prompt you to create a new config on startup.
 
-> **v1.0.0**: UI now uses "Account ID" instead of "email". TXT file uploads supported in bulk create and bulk ops. Duration shows "days" instead of "d".
+> **v1.0.0**: UI now uses "Account ID" instead of "email". TXT file uploads supported in bulk create and bulk ops.
+>
+> **v1.1.0**: arm64 builds, `--version` flag, translated duration units, improved install script with version detection.
 
 ## Permissions
 

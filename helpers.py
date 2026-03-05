@@ -44,9 +44,9 @@ def format_expiry(ms: int, uid: int = 0) -> str:
     hours = (dur % 86_400_000) // 3_600_000
     parts = []
     if days:
-        parts.append(f"{days} days")
+        parts.append(t("days_unit", uid, value=days) if uid else f"{days} days")
     if hours:
-        parts.append(f"{hours}h")
+        parts.append(t("hours_unit", uid, value=hours) if uid else f"{hours}h")
     text = " ".join(parts) or (t("less_than_1h", uid) if uid else "< 1h")
     if ms > 0:
         exp_date = time.strftime("%Y-%m-%d", time.gmtime(ms / 1000))
@@ -452,7 +452,7 @@ def format_client_line(client: dict, traffic: dict | None, uid: int) -> str:
             dur_str = t("expired", uid)
         else:
             days = dur // 86_400_000
-            dur_str = f"{days} days"
+            dur_str = t("days_unit", uid, value=days)
 
     # 3-state icon: ✅ active, ⛔ depleted, 🔴 disabled
     if not enabled:

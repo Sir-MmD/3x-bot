@@ -20,7 +20,8 @@ force_join_not_joined = "⚠️ You still haven't joined all channels."
 unlimited = "Unlimited"
 expired = "Expired"
 after_first_use = "after first use"
-less_than_1h = "< 1h"
+less_than_1h = "< 1 hour"
+hours_unit = "{value}h"
 
 # ── Search ───────────────────────────────────────────────────────────────────
 search_prompt = "ℹ️ Search for a user account by their Account ID.\n\n🔍 Enter Account ID to search:"
