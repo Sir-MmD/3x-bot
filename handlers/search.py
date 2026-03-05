@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import time
 
@@ -348,6 +349,49 @@ def register(bot):
             title=t("pdf_account_title", uid, email=email),
             uid=uid,
         )
-        await answer(event,t("generating_pdf", uid))
+        await answer(event, t("generating_pdf", uid))
         await bot.send_file(event.chat_id, pdf, caption=t("account_pdf", uid))
         log_activity(uid, "pdf_export", json.dumps({"email": email, "panel": pid}))
+
+    @bot.on(events.CallbackQuery(data=b"txt"))
+    @auth("pdf")
+    async def cb_export_txt(event):
+        uid = event.sender_id
+        s = st(uid)
+        client = s.get("sr_client")
+        iid = s.get("sr_iid")
+        pid = s.get("sr_pid")
+        if not client or not iid or not pid:
+            return
+        p = get_panel(pid)
+        inbounds = await p.list_inbounds()
+        inbound = next((ib for ib in inbounds if ib["id"] == iid), None)
+        if not inbound:
+            return
+
+        addr = server_addrs[pid]
+        sub_url = sub_urls[pid]
+        proxy_link = build_client_link(client, inbound, addr)
+        sub_id = client.get("subId", "")
+        sub_link = f"{sub_url}/{sub_id}" if sub_url and sub_id else None
+
+        total = client.get("totalGB", 0)
+        unlim = t("unlimited", uid)
+        traffic_str = format_bytes(total) if total > 0 else unlim
+        duration_str = format_expiry(client.get("expiryTime", 0), uid)
+        email = client["email"]
+
+        lines = [f"Email: {email}"]
+        lines.append(f"Panel: {pid}")
+        lines.append(f"Traffic: {traffic_str}")
+        lines.append(f"Duration: {duration_str}")
+        if proxy_link:
+            lines.append(f"Link: {proxy_link}")
+        if sub_link:
+            lines.append(f"Subscription: {sub_link}")
+
+        txt_buf = io.BytesIO("\n".join(lines).encode("utf-8"))
+        txt_buf.name = f"{email}.txt"
+        await answer(event, t("generating_pdf", uid))
+        await bot.send_file(event.chat_id, txt_buf, caption=t("account_txt", uid))
+        log_activity(uid, "txt_export", json.dumps({"email": email, "panel": pid}))

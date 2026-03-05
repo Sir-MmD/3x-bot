@@ -20,8 +20,8 @@ async def main():
     load_db_panels()
 
     # Verify session matches current token; delete stale session and re-exec if not
-    expected_id = int(cfg["token"].split(":")[0])
-    await bot.start(bot_token=cfg["token"])
+    expected_id = int(cfg["bot"]["token"].split(":")[0])
+    await bot.start(bot_token=cfg["bot"]["token"])
     me = await bot.get_me()
     if me.id != expected_id:
         print(f"[WARN] Session belongs to a different bot ({me.id}), expected {expected_id}. Resetting session...")

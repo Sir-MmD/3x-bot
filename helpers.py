@@ -393,6 +393,7 @@ def search_result_buttons(uid: int, status: str):
     row3 = []
     if has_perm(uid, "pdf"):
         row3.append(Button.inline(t("btn_pdf", uid), b"pdf"))
+        row3.append(Button.inline(t("btn_txt", uid), b"txt"))
     row3.append(Button.inline(t("btn_back", uid), b"m"))
     btns.append(row3)
     return btns
