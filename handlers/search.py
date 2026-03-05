@@ -156,7 +156,7 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
             if dur_ms <= 0:
                 remaining_days = t("expired", uid)
             else:
-                remaining_days = f"{dur_ms // 86_400_000} days"
+                remaining_days = t("days_unit", uid, value=dur_ms // 86_400_000)
         lines = [
             t("sr_email", uid, email=actual_email),
             t(status_key, uid),

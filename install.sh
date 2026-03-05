@@ -8,7 +8,6 @@ SERVICE_NAME="3x-bot"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 REPO="Sir-MmD/3x-bot"
 CONFIG_FILE="${INSTALL_DIR}/config.toml"
-VERSION_FILE="${INSTALL_DIR}/.version"
 WIDTH=40
 
 # --- State ---
@@ -55,8 +54,14 @@ get_os_name() {
 }
 
 get_installed_version() {
-    if [[ -f "$VERSION_FILE" ]]; then
-        cat "$VERSION_FILE"
+    if [[ -f "${INSTALL_DIR}/${BIN_NAME}" ]]; then
+        local ver
+        ver=$("${INSTALL_DIR}/${BIN_NAME}" --version 2>/dev/null | grep -oP 'v\K\S+' || echo "")
+        if [[ -n "$ver" ]]; then
+            echo "v${ver}"
+        else
+            echo "-"
+        fi
     else
         echo "-"
     fi
@@ -119,7 +124,7 @@ detect_arch() {
 }
 
 print_banner() {
-    local status os_name installed target prerelease_tag
+    local status os_name installed target
     status=$(get_status)
     os_name=$(get_os_name)
     installed=$(get_installed_version)
@@ -193,7 +198,6 @@ download_binary() {
     echo
 
     chmod +x "${INSTALL_DIR}/${BIN_NAME}"
-    echo "$target" > "$VERSION_FILE"
 }
 
 write_service() {
@@ -215,69 +219,6 @@ WantedBy=multi-user.target
 EOF
 }
 
-# --- Configuration ---
-
-configure_bot() {
-    local api_id api_hash token owner proxy
-
-    echo
-    print_separator
-    echo -e " ${BOLD}Bot Configuration${NC}"
-    print_separator
-    echo
-
-    # If editing existing config, show current values
-    if [[ -f "$CONFIG_FILE" ]]; then
-        echo -e " ${CYAN}Leave empty to keep current value.${NC}"
-        echo
-
-        local cur_api_id cur_api_hash cur_token cur_owner cur_proxy
-        cur_api_id=$(grep -oP '^api_id\s*=\s*\K\S+' "$CONFIG_FILE" 2>/dev/null || echo "")
-        cur_api_hash=$(grep -oP '^api_hash\s*=\s*"\K[^"]+' "$CONFIG_FILE" 2>/dev/null || echo "")
-        cur_token=$(grep -oP '^token\s*=\s*"\K[^"]+' "$CONFIG_FILE" 2>/dev/null || echo "")
-        cur_owner=$(grep -oP '^owner\s*=\s*\K\S+' "$CONFIG_FILE" 2>/dev/null || echo "")
-        cur_proxy=$(grep -oP '^proxy\s*=\s*"\K[^"]+' "$CONFIG_FILE" 2>/dev/null || echo "")
-
-        read -rp " API ID [${cur_api_id}]: " api_id < /dev/tty
-        read -rp " API Hash [${cur_api_hash}]: " api_hash < /dev/tty
-        read -rp " Bot Token [${cur_token}]: " token < /dev/tty
-        read -rp " Owner ID [${cur_owner}]: " owner < /dev/tty
-        read -rp " Proxy [${cur_proxy:-none}]: " proxy < /dev/tty
-
-        api_id="${api_id:-$cur_api_id}"
-        api_hash="${api_hash:-$cur_api_hash}"
-        token="${token:-$cur_token}"
-        owner="${owner:-$cur_owner}"
-        proxy="${proxy:-$cur_proxy}"
-    else
-        read -rp " API ID: " api_id < /dev/tty
-        read -rp " API Hash: " api_hash < /dev/tty
-        read -rp " Bot Token: " token < /dev/tty
-        read -rp " Owner ID: " owner < /dev/tty
-        read -rp " Proxy (leave empty to skip): " proxy < /dev/tty
-    fi
-
-    if [[ -z "$api_id" || -z "$api_hash" || -z "$token" || -z "$owner" ]]; then
-        error "All fields except proxy are required."
-        return 1
-    fi
-
-    mkdir -p "$INSTALL_DIR"
-
-    cat > "$CONFIG_FILE" <<EOF
-api_id = ${api_id}
-api_hash = "${api_hash}"
-token = "${token}"
-owner = ${owner}
-EOF
-
-    if [[ -n "$proxy" ]]; then
-        echo "proxy = \"${proxy}\"" >> "$CONFIG_FILE"
-    fi
-
-    info "Config saved to ${CONFIG_FILE}"
-}
-
 # --- Actions ---
 
 do_install() {
@@ -288,10 +229,14 @@ do_install() {
 
     mkdir -p "$INSTALL_DIR"
     download_binary
-    configure_bot
 
     write_service
     systemctl daemon-reload
+
+    # Run the binary once for interactive config setup (it exits after creating config.toml)
+    info "Starting initial configuration..."
+    "${INSTALL_DIR}/${BIN_NAME}" || true
+
     systemctl enable --now "$SERVICE_NAME"
 
     info "Installation complete!"
@@ -320,7 +265,10 @@ do_update() {
 
     systemctl start "$SERVICE_NAME"
 
-    info "Update complete!"
+    # Verify the update
+    local new_version
+    new_version=$(get_installed_version)
+    info "Update complete! Now running ${new_version}."
 }
 
 do_config() {
@@ -329,17 +277,19 @@ do_config() {
         return 1
     fi
 
-    configure_bot || return 1
-
-    echo
-    local restart
-    read -rp " Restart service to apply? [Y/n]: " restart < /dev/tty
-    restart="${restart:-y}"
-
-    if [[ "$restart" =~ ^[Yy]$ ]]; then
-        systemctl restart "$SERVICE_NAME"
-        info "Service restarted."
+    # Remove existing config so the binary triggers interactive setup
+    if [[ -f "$CONFIG_FILE" ]]; then
+        local backup="${CONFIG_FILE}.bak"
+        cp "$CONFIG_FILE" "$backup"
+        info "Backed up current config to ${backup}"
+        rm -f "$CONFIG_FILE"
     fi
+
+    systemctl stop "$SERVICE_NAME" || true
+    info "Starting configuration..."
+    "${INSTALL_DIR}/${BIN_NAME}" || true
+    systemctl start "$SERVICE_NAME"
+    info "Service restarted with new config."
 }
 
 do_uninstall() {

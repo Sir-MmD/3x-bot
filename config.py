@@ -3,7 +3,8 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
 
-VERSION = "1.0.0"
+from _version import VERSION
+
 AUTHOR = "Sir.MmD"
 
 import socks

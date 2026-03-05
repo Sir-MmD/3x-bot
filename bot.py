@@ -2,6 +2,11 @@ import asyncio
 import os
 import sys
 
+if len(sys.argv) > 1 and sys.argv[1] in ("-v", "--version"):
+    from _version import VERSION
+    print(f"3x-bot v{VERSION}")
+    sys.exit(0)
+
 from telethon.tl.functions.bots import SetBotCommandsRequest
 from telethon.tl.types import BotCommand, BotCommandScopeDefault
 
