@@ -68,6 +68,7 @@ error_msg = "⚠️ Ошибка: {error}"
 generating_pdf = "Создание PDF..."
 account_pdf = "📄 PDF аккаунта"
 account_txt = "📝 TXT аккаунта"
+generating_txt = "Создание TXT..."
 
 # ── Modify Traffic ───────────────────────────────────────────────────────────
 modify_traffic_title = "📊 **Изменить трафик**"

@@ -68,6 +68,7 @@ error_msg = "⚠️ خطا: {error}"
 generating_pdf = "در حال ایجاد PDF..."
 account_pdf = "📄 PDF حساب کاربری"
 account_txt = "📝 TXT حساب کاربری"
+generating_txt = "در حال ایجاد TXT..."
 
 # ── Modify Traffic ───────────────────────────────────────────────────────────
 modify_traffic_title = "📊 **تغییر ترافیک**"
