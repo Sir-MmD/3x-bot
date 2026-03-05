@@ -11,6 +11,7 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Client list** — paginated view of all clients per inbound with detailed inbound info header (protocol, transport, security, user stats, traffic)
 - **Bulk operations** — add/subtract days or traffic, enable/disable all, remove all — across multiple panels with multi-select panel and inbound filter
 - **PDF & TXT export** — account details with QR codes and subscription links in PDF or plain text
+- **TXT file import** — upload exported TXT files (or plain ID lists) to bulk create or bulk ops flows
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
 - **Per-admin permissions** — restrict each admin to specific operations, panels, and inbounds
 - **Public mode** — optionally open the bot to everyone with configurable permissions
@@ -63,6 +64,8 @@ pass = ""
 Everything else (admins, panels, public mode, force-join, permissions) is managed through the **Owner Panel** in the bot UI and stored in the database.
 
 > **Upgrading from v0.5.x**: Old flat config.toml files are not compatible. The bot will prompt you to create a new config on startup.
+
+> **v1.0.0**: UI now uses "Account ID" instead of "email". TXT file uploads supported in bulk create and bulk ops. Duration shows "days" instead of "d".
 
 ## Permissions
 

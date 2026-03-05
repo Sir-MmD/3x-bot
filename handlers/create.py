@@ -188,7 +188,7 @@ async def _bulk_create_clients(event, uid: int):
     if created:
         txt_lines = []
         for acc in created:
-            block = [f"Email: {acc['email']}"]
+            block = [f"Account ID: {acc['email']}"]
             block.append(f"Panel: {acc['panel']}")
             block.append(f"Traffic: {acc['traffic']}")
             block.append(f"Duration: {acc['duration']}")

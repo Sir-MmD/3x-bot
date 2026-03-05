@@ -830,7 +830,7 @@ def register(bot):
             })
 
             # Build TXT block
-            block = [f"Email: {email}"]
+            block = [f"Account ID: {email}"]
             block.append(f"Panel: {panel_name}")
             block.append(f"Traffic: {traffic_str}")
             block.append(f"Duration: {duration_str}")

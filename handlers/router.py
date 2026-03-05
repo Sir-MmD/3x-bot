@@ -8,7 +8,7 @@ from telethon import events, Button
 
 from config import st, has_perm, is_owner
 from db import get_db_admins, get_setting
-from helpers import auth
+from helpers import auth, extract_ids_from_content
 from i18n import t
 from handlers.search import show_search_result
 from handlers.modify import handle_modify_traffic_input, handle_modify_days_input, handle_renew_input
@@ -113,8 +113,34 @@ def register(bot):
     async def on_document(event):
         uid = event.sender_id
         s = st(uid)
-        if s.get("state") == "op_rs":
+        state = s.get("state")
+        if state == "op_rs":
             await handle_owner_restore(event)
+            return
+        # Accept .txt file uploads for bulk ID entry
+        if state in ("bk_emails", "bo_manual"):
+            doc = event.document
+            name = getattr(doc, "attributes", None)
+            fname = ""
+            if name:
+                for attr in name:
+                    if hasattr(attr, "file_name"):
+                        fname = attr.file_name or ""
+                        break
+            if not fname.lower().endswith(".txt"):
+                return
+            data = await event.download_media(bytes)
+            try:
+                content = data.decode("utf-8")
+            except UnicodeDecodeError:
+                content = data.decode("latin-1")
+            ids = extract_ids_from_content(content)
+            # Inject as text and delegate to existing handlers
+            event.message.message = "\n".join(ids) if ids else ""
+            if state == "bk_emails":
+                await handle_bulk_create_input(event)
+            elif state == "bo_manual":
+                await handle_bulk_op_manual(event)
 
     @bot.on(events.NewMessage(func=lambda e: e.text and not e.text.startswith("/")))
     @auth
