@@ -1,3 +1,4 @@
+import io
 import json
 import time
 
@@ -11,7 +12,6 @@ from helpers import (
 )
 from i18n import t
 from panel import build_client_link, SUPPORTED_PROTOCOLS
-from pdf_export import generate_account_pdf
 
 
 async def _create_client(event, uid: int):
@@ -66,53 +66,8 @@ async def _create_client(event, uid: int):
 
     log_activity(uid, "create", json.dumps({"email": email, "panel": panel_name, "inbound": iid}))
 
-    addr = server_addrs[panel_name]
-    sub_url = sub_urls[panel_name]
-    proxy_link = build_client_link(client_dict, inbound, addr)
-    sub_id = client_dict.get("subId", "")
-    sub_link = f"{sub_url}/{sub_id}" if sub_url and sub_id else None
-    unlim = t("unlimited", uid)
-    traffic_str = format_bytes(total_bytes) if total_bytes > 0 else unlim
-    duration_str = format_expiry(expiry_time, uid)
-
-    lines = [
-        t("create_success", uid),
-        "",
-        t("create_email_line", uid, email=email),
-        t("create_traffic_line", uid, traffic=traffic_str),
-        t("create_duration_line", uid, duration=duration_str),
-        t("create_inbound_line", uid, remark=inbound.get("remark", "?")),
-        t("create_panel_line", uid, panel=panel_name),
-    ]
-    if proxy_link:
-        lines += ["", f"`{proxy_link}`"]
-    text = "\n".join(lines)
-    back_data = f"ib:{panel_name}:{iid}".encode()
-    btns = [[Button.inline(t("btn_back", uid), back_data),
-             Button.inline(t("btn_main_menu", uid), b"m")]]
-    clear(uid)
-
-    if proxy_link:
-        qr = make_qr(proxy_link)
-        await reply(event, text, buttons=btns, file=qr)
-        # Also send PDF
-        pdf_qr = make_qr(proxy_link)
-        pdf = generate_account_pdf(
-            [{
-                "email": email,
-                "proxy_link": proxy_link,
-                "qr_image": pdf_qr,
-                "traffic": traffic_str,
-                "duration": duration_str,
-                "sub_link": sub_link,
-                "panel": panel_name,
-            }],
-            title=t("pdf_account_title", uid, email=email),
-            uid=uid,
-        )
-        await bot.send_file(event.chat_id, pdf, caption=t("account_pdf", uid))
-    else:
-        await reply(event, text, buttons=btns)
+    from handlers.search import show_search_result
+    await show_search_result(event, uid, email, panel_name=panel_name)
 
 
 async def _bulk_create_clients(event, uid: int):
@@ -229,14 +184,23 @@ async def _bulk_create_clients(event, uid: int):
         parse_mode="md",
     )
 
-    # Generate and send PDF for created accounts
+    # Send TXT file with created account details
     if created:
-        pdf = generate_account_pdf(
-            created,
-            f"Bulk Accounts - {panel_name} / {remark}",
-            uid=uid,
-        )
-        await bot.send_file(event.chat_id, pdf, caption=t("bulk_pdf", uid))
+        txt_lines = []
+        for acc in created:
+            block = [f"Email: {acc['email']}"]
+            block.append(f"Panel: {acc['panel']}")
+            block.append(f"Traffic: {acc['traffic']}")
+            block.append(f"Duration: {acc['duration']}")
+            if acc.get("proxy_link"):
+                block.append(f"Link: {acc['proxy_link']}")
+            if acc.get("sub_link"):
+                block.append(f"Subscription: {acc['sub_link']}")
+            block.append("")
+            txt_lines.extend(block)
+        txt_buf = io.BytesIO("\n".join(txt_lines).encode("utf-8"))
+        txt_buf.name = f"bulk-{panel_name}-{remark}.txt"
+        await bot.send_file(event.chat_id, txt_buf, caption=t("account_txt", uid))
 
     clear(uid)
 

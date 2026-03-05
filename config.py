@@ -3,7 +3,7 @@ import tomllib
 from pathlib import Path
 from urllib.parse import urlparse
 
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 AUTHOR = "Sir.MmD"
 
 import socks
@@ -20,11 +20,29 @@ _CONFIG_PATH = DATA_DIR / "config.toml"
 # ── Config ───────────────────────────────────────────────────────────────────
 
 
+def _validate_config(cfg: dict) -> bool:
+    """Return True if config has the expected section structure."""
+    bot_sec = cfg.get("bot", {})
+    owner_sec = cfg.get("owner", {})
+    return (
+        isinstance(bot_sec, dict) and "api_id" in bot_sec
+        and "api_hash" in bot_sec and "token" in bot_sec
+        and isinstance(owner_sec, dict) and "id" in owner_sec
+    )
+
+
 def _read_config() -> dict:
     """Read and parse config.toml, or run interactive setup if missing/corrupt."""
     if _CONFIG_PATH.exists():
         try:
-            return tomllib.loads(_CONFIG_PATH.read_text())
+            cfg = tomllib.loads(_CONFIG_PATH.read_text())
+            if _validate_config(cfg):
+                return cfg
+            print("\n[ERR] config.toml has old or invalid format.")
+            print(f"      Path: {_CONFIG_PATH}")
+            resp = input("      Create a new config? [y/N]: ").strip().lower()
+            if resp != "y":
+                sys.exit(1)
         except Exception as e:
             print(f"\n[ERR] config.toml is corrupt: {e}")
             print(f"      Path: {_CONFIG_PATH}")
@@ -40,7 +58,6 @@ def _read_config() -> dict:
     api_hash = input("  Telegram API Hash: ").strip()
     token = input("  Bot Token: ").strip()
     owner = input("  Owner Telegram User ID: ").strip()
-    proxy = input("  Bot Proxy (leave empty to skip): ").strip()
 
     if not api_id or not api_hash or not token or not owner:
         print("\n[ERR] All fields except proxy are required.")
@@ -53,16 +70,37 @@ def _read_config() -> dict:
         print("\n[ERR] API ID and Owner must be numbers.")
         sys.exit(1)
 
-    lines = [
-        f'api_id = {api_id}',
-        f'api_hash = "{api_hash}"',
-        f'token = "{token}"',
-        f'owner = {owner}',
-    ]
-    if proxy:
-        lines.append(f'proxy = "{proxy}"')
+    print("\n  ── Proxy (optional, press Enter to skip) ──")
+    proxy_type = input("  Proxy type (socks5/socks4/http) [skip]: ").strip().lower()
 
-    _CONFIG_PATH.write_text("\n".join(lines) + "\n")
+    proxy_section = ""
+    if proxy_type in ("socks5", "socks4", "http"):
+        proxy_addr = input("  Proxy address (IP/hostname): ").strip()
+        proxy_port = input("  Proxy port: ").strip()
+        proxy_user = input("  Proxy username (Enter to skip): ").strip()
+        proxy_pass = input("  Proxy password (Enter to skip): ").strip()
+        if not proxy_addr or not proxy_port:
+            print("  [WARN] Proxy address/port required. Skipping proxy.")
+        else:
+            proxy_section = f"""
+[proxy]
+type = "{proxy_type}"
+address = "{proxy_addr}"
+port = {proxy_port}
+user = "{proxy_user}"
+pass = "{proxy_pass}"
+"""
+
+    content = f"""[bot]
+api_id = {api_id}
+api_hash = "{api_hash}"
+token = "{token}"
+
+[owner]
+id = {owner}
+{proxy_section}"""
+
+    _CONFIG_PATH.write_text(content)
     print(f"\n[OK] Config saved to {_CONFIG_PATH}\n")
 
     return tomllib.loads(_CONFIG_PATH.read_text())
@@ -72,7 +110,7 @@ cfg = _read_config()
 
 ALL_PERMS = {"search", "search_simple", "create", "modify", "toggle", "remove", "bulk", "pdf"}
 
-owner_id: int = cfg["owner"]
+owner_id: int = cfg["owner"]["id"]
 
 
 # ── Permissions ──────────────────────────────────────────────────────────────
@@ -234,19 +272,22 @@ def reload_panels():
 _proxy_types = {"socks5": socks.SOCKS5, "socks4": socks.SOCKS4, "http": socks.HTTP}
 
 
-def _parse_proxy(url: str):
-    """Parse a proxy URL into a PySocks tuple for Telethon."""
-    p = urlparse(url)
-    scheme = p.scheme.lower()
+def _parse_proxy(proxy_cfg: dict):
+    """Parse a proxy config dict into a PySocks tuple for Telethon."""
+    scheme = proxy_cfg.get("type", "").lower()
     if scheme not in _proxy_types:
         raise ValueError(f"Unsupported proxy type: {scheme} (use socks5, socks4, or http)")
-    return (_proxy_types[scheme], p.hostname, p.port, True, p.username, p.password)
+    addr = proxy_cfg.get("address", "")
+    port = int(proxy_cfg.get("port", 0))
+    user = proxy_cfg.get("user", "") or None
+    pwd = proxy_cfg.get("pass", "") or None
+    return (_proxy_types[scheme], addr, port, True, user, pwd)
 
 
-_bot_proxy_url = cfg.get("proxy", "")
-_bot_proxy = _parse_proxy(_bot_proxy_url) if _bot_proxy_url else None
+_bot_proxy_cfg = cfg.get("proxy", {})
+_bot_proxy = _parse_proxy(_bot_proxy_cfg) if _bot_proxy_cfg.get("type") else None
 
-bot = TelegramClient(str(DATA_DIR / "bot"), cfg["api_id"], cfg["api_hash"], proxy=_bot_proxy)
+bot = TelegramClient(str(DATA_DIR / "bot"), cfg["bot"]["api_id"], cfg["bot"]["api_hash"], proxy=_bot_proxy)
 
 
 # ── State ────────────────────────────────────────────────────────────────────

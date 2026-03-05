@@ -232,6 +232,8 @@ async def _show_manual_result(event, uid, found_count, not_found):
         lines.append("\n".join(f"  `{e}`" for e in not_found))
     btns = [
         [Button.inline(t("btn_days", uid), b"bot:d"), Button.inline(t("btn_traffic", uid), b"bot:t")],
+        [Button.inline(t("btn_enable_all", uid), b"bot:en"), Button.inline(t("btn_disable_all", uid), b"bot:dis")],
+        [Button.inline(t("btn_remove_all", uid), b"bot:rm")],
         [Button.inline(t("btn_export", uid), b"boe")],
         [Button.inline(t("btn_back", uid), _back_data(uid)),
          Button.inline(t("btn_main_menu", uid), b"m")],
@@ -562,6 +564,8 @@ def register(bot):
             t("bo_filter_result", uid, filter=filter_label, count=count),
             buttons=[
                 [Button.inline(t("btn_days", uid), b"bot:d"), Button.inline(t("btn_traffic", uid), b"bot:t")],
+                [Button.inline(t("btn_enable_all", uid), b"bot:en"), Button.inline(t("btn_disable_all", uid), b"bot:dis")],
+                [Button.inline(t("btn_remove_all", uid), b"bot:rm")],
                 [Button.inline(t("btn_export", uid), b"boe")],
                 [Button.inline(t("btn_back", uid), _back_data(uid)),
                  Button.inline(t("btn_main_menu", uid), b"m")],
@@ -621,6 +625,125 @@ def register(bot):
         s = st(uid)
         s["bo_sau"] = choice == "y"
         await _bulk_op_execute(event, uid)
+
+    # ── Bulk Enable / Disable / Remove ─────────────────────────────────
+
+    async def _bulk_action_execute(event, uid, action):
+        """Execute bulk enable, disable, or remove on collected clients."""
+        s = st(uid)
+        clients = s.get("bo_clients", [])
+        if not clients:
+            await reply(
+                event,
+                t("bo_no_accounts", uid),
+                buttons=[[Button.inline(t("btn_back", uid), b"m")]],
+            )
+            clear(uid)
+            return
+
+        progress_msg = await bot.send_message(
+            event.chat_id,
+            t("bo_processing", uid, done=0, total=len(clients)),
+        )
+
+        success = 0
+        failed = 0
+        done_count = 0
+        total = len(clients)
+        counters_lock = asyncio.Lock()
+
+        by_group: dict[tuple[str, int], list] = {}
+        for client, iid, cid, proto, pname in clients:
+            by_group.setdefault((pname, iid), []).append((client, iid, cid, proto, pname))
+
+        async def process_group(group):
+            nonlocal success, failed, done_count
+            panel_name = group[0][4]
+            p = get_panel(panel_name)
+            for client, inbound_id, client_id, protocol, _pn in group:
+                try:
+                    if action == "remove":
+                        await p.delete_client(inbound_id, client_id)
+                    else:
+                        client["enable"] = action == "enable"
+                        await p.update_client(client_id, inbound_id, client)
+                    async with counters_lock:
+                        success += 1
+                        done_count += 1
+                        current = done_count
+                except Exception:
+                    async with counters_lock:
+                        failed += 1
+                        done_count += 1
+                        current = done_count
+                if current % 10 == 0 or current == total:
+                    try:
+                        await progress_msg.edit(t("bo_processing", uid, done=current, total=total))
+                    except Exception:
+                        pass
+
+        await asyncio.gather(*[process_group(group) for group in by_group.values()])
+
+        try:
+            await progress_msg.delete()
+        except Exception:
+            pass
+
+        involved_panels = sorted({pname for _, _, _, _, pname in clients})
+        panels_str = ", ".join(involved_panels)
+
+        log_activity(uid, f"bulk_{action}", json.dumps({
+            "panels": involved_panels, "success": success, "failed": failed,
+        }))
+
+        title_key = {"enable": "bo_enable_success", "disable": "bo_disable_success", "remove": "bo_remove_success"}[action]
+        lines = [
+            t(title_key, uid),
+            "",
+            t("sr_panel", uid, panel=panels_str),
+            "",
+            t("bo_success", uid, count=success),
+            t("bo_failed", uid, count=failed),
+        ]
+        await bot.send_message(
+            event.chat_id,
+            "\n".join(lines),
+            buttons=[[Button.inline(t("btn_back", uid), b"m")]],
+            parse_mode="md",
+        )
+        clear(uid)
+
+    @bot.on(events.CallbackQuery(data=b"bot:en"))
+    @auth("bulk")
+    async def cb_bulk_enable(event):
+        await _bulk_action_execute(event, event.sender_id, "enable")
+
+    @bot.on(events.CallbackQuery(data=b"bot:dis"))
+    @auth("bulk")
+    async def cb_bulk_disable(event):
+        await _bulk_action_execute(event, event.sender_id, "disable")
+
+    @bot.on(events.CallbackQuery(data=b"bot:rm"))
+    @auth("bulk")
+    async def cb_bulk_remove_confirm(event):
+        uid = event.sender_id
+        s = st(uid)
+        clients = s.get("bo_clients", [])
+        if not clients:
+            return
+        await reply(
+            event,
+            t("bo_confirm_remove", uid, count=len(clients)),
+            buttons=[
+                [Button.inline(t("btn_yes_remove_all", uid), b"bot:rmc"),
+                 Button.inline(t("btn_cancel", uid), b"m")],
+            ],
+        )
+
+    @bot.on(events.CallbackQuery(data=b"bot:rmc"))
+    @auth("bulk")
+    async def cb_bulk_remove_execute(event):
+        await _bulk_action_execute(event, event.sender_id, "remove")
 
     # ── Enter Manually ─────────────────────────────────────────────────
 

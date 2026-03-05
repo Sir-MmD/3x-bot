@@ -6,16 +6,17 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 
 - **Multi-panel support** — manage multiple 3x-ui panels from one bot
 - **Search** — find clients by email across all panels
-- **Create accounts** — single or bulk (up to 100), with flexible naming schemes
+- **Create accounts** — single or bulk (up to 100), with flexible naming schemes; single create shows full account info, bulk sends TXT summary
 - **Manage clients** — enable/disable, modify traffic & duration, reset usage, remove
 - **Client list** — paginated view of all clients per inbound with detailed inbound info header (protocol, transport, security, user stats, traffic)
-- **Bulk operations** — add/subtract days or traffic across multiple panels with multi-select panel and inbound filter, accessible from main menu
-- **PDF export** — account details with QR codes and subscription links
+- **Bulk operations** — add/subtract days or traffic, enable/disable all, remove all — across multiple panels with multi-select panel and inbound filter
+- **PDF & TXT export** — account details with QR codes and subscription links in PDF or plain text
 - **Protocol support** — VLESS, VMess, Trojan, Shadowsocks
 - **Per-admin permissions** — restrict each admin to specific operations, panels, and inbounds
 - **Public mode** — optionally open the bot to everyone with configurable permissions
 - **Force join** — require users to join channels (public or private) with interactive channel manager
 - **Multi-language** — English, Persian, Russian with per-user selection and RTL PDF support
+- **Info hints** — contextual ℹ️ help text on every interactive step
 - **Activity logging** — audit trail of all user actions (search, create, modify, remove, bulk ops, admin changes) with timestamps
 - **Admin display names** — admin list shows Telegram names alongside user IDs
 - **Backup & Restore** — download/upload config + database as ZIP
@@ -33,16 +34,35 @@ The same script handles **install**, **update**, and **uninstall**.
 
 ## Configuration
 
-On first run, the bot prompts for the required configuration:
+On first run, the bot prompts for the required configuration and saves it to `config.toml`:
 
-| Field | Description |
-|-------|-------------|
-| `api_id` / `api_hash` | Telegram API credentials from [my.telegram.org](https://my.telegram.org) |
-| `token` | Bot token from [@BotFather](https://t.me/BotFather) |
-| `owner` | Your Telegram user ID (gets full access) |
-| `proxy` | Optional proxy for Telegram connection (`socks5://`, `socks4://`, `http://`) |
+```toml
+[bot]
+api_id = 12345
+api_hash = "your_api_hash"
+token = "your_bot_token"
+
+[owner]
+id = 98765
+
+[proxy]  # optional
+type = "socks5"
+address = "127.0.0.1"
+port = 1080
+user = ""
+pass = ""
+```
+
+| Section | Field | Description |
+|---------|-------|-------------|
+| `[bot]` | `api_id` / `api_hash` | Telegram API credentials from [my.telegram.org](https://my.telegram.org) |
+| `[bot]` | `token` | Bot token from [@BotFather](https://t.me/BotFather) |
+| `[owner]` | `id` | Your Telegram user ID (gets full access) |
+| `[proxy]` | `type`, `address`, `port`, `user`, `pass` | Optional proxy for Telegram connection (socks5, socks4, http) |
 
 Everything else (admins, panels, public mode, force-join, permissions) is managed through the **Owner Panel** in the bot UI and stored in the database.
+
+> **Upgrading from v0.5.x**: Old flat config.toml files are not compatible. The bot will prompt you to create a new config on startup.
 
 ## Permissions
 
@@ -50,7 +70,8 @@ Each admin gets a list of permissions. Use `*` to grant all.
 
 | Permission | Covers |
 |-----------|--------|
-| `search` | Search user, view details |
+| `search` | Search user, view full details |
+| `search_simple` | Search user, view only status/remaining traffic/time |
 | `create` | Create account (single & bulk) |
 | `modify` | Modify traffic & duration |
 | `toggle` | Enable/disable accounts |
