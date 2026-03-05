@@ -156,7 +156,7 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
             if dur_ms <= 0:
                 remaining_days = t("expired", uid)
             else:
-                remaining_days = f"{dur_ms // 86_400_000}d"
+                remaining_days = f"{dur_ms // 86_400_000} days"
         lines = [
             t("sr_email", uid, email=actual_email),
             t(status_key, uid),
@@ -381,7 +381,7 @@ def register(bot):
         duration_str = format_expiry(client.get("expiryTime", 0), uid)
         email = client["email"]
 
-        lines = [f"Email: {email}"]
+        lines = [f"Account ID: {email}"]
         lines.append(f"Panel: {pid}")
         lines.append(f"Traffic: {traffic_str}")
         lines.append(f"Duration: {duration_str}")

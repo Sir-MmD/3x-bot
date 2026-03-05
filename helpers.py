@@ -44,7 +44,7 @@ def format_expiry(ms: int, uid: int = 0) -> str:
     hours = (dur % 86_400_000) // 3_600_000
     parts = []
     if days:
-        parts.append(f"{days}d")
+        parts.append(f"{days} days")
     if hours:
         parts.append(f"{hours}h")
     text = " ".join(parts) or (t("less_than_1h", uid) if uid else "< 1h")
@@ -367,6 +367,30 @@ def main_menu_buttons(uid: int):
     return btns
 
 
+_ACCOUNT_ID_RE = re.compile(r"^Account ID:\s*(.+)$", re.MULTILINE)
+
+
+def extract_ids_from_content(text: str) -> list[str]:
+    """Extract unique account IDs from text content (preserves order).
+
+    Supports two formats:
+    - Exported TXT: lines like 'Account ID: xxx' — extracts xxx values
+    - Plain list: each non-empty line is treated as an ID
+    """
+    matches = _ACCOUNT_ID_RE.findall(text)
+    if matches:
+        items = [m.strip() for m in matches if m.strip()]
+    else:
+        items = [line.strip() for line in text.splitlines() if line.strip()]
+    seen = set()
+    result = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
 def search_result_buttons(uid: int, status: str):
     """Build search result action buttons filtered by user permissions.
 
@@ -428,7 +452,7 @@ def format_client_line(client: dict, traffic: dict | None, uid: int) -> str:
             dur_str = t("expired", uid)
         else:
             days = dur // 86_400_000
-            dur_str = f"{days}d"
+            dur_str = f"{days} days"
 
     # 3-state icon: ✅ active, ⛔ depleted, 🔴 disabled
     if not enabled:
