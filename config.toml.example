@@ -1,6 +1,14 @@
+[bot]
 api_id = 123456
 api_hash = "your_api_hash"
 token = "your_bot_token"
-owner = 123456789  # Telegram user ID — has full access, manages admins & panels
 
-# proxy = "socks5://127.0.0.1:1080"  # optional, proxy for Telegram connection
+[owner]
+id = 123456789  # Telegram user ID — has full access, manages admins & panels
+
+# [proxy]  # optional, proxy for Telegram connection
+# type = "socks5"
+# address = "127.0.0.1"
+# port = 1080
+# user = ""
+# pass = ""

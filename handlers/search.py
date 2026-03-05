@@ -392,6 +392,6 @@ def register(bot):
 
         txt_buf = io.BytesIO("\n".join(lines).encode("utf-8"))
         txt_buf.name = f"{email}.txt"
-        await answer(event, t("generating_pdf", uid))
+        await answer(event, t("generating_txt", uid))
         await bot.send_file(event.chat_id, txt_buf, caption=t("account_txt", uid))
         log_activity(uid, "txt_export", json.dumps({"email": email, "panel": pid}))
