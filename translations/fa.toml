@@ -59,7 +59,7 @@ btn_days = "⏳ روزها"
 btn_pdf = "📄 PDF"
 
 # ── Remove ───────────────────────────────────────────────────────────────────
-confirm_remove = "⚠️ آیا مطمئن هستید که می‌خواهید این کاربر را حذف کنید؟"
+confirm_remove = "⚠️ آیا مطمئن هستید که می‌خواهید `{email}` را حذف کنید؟"
 btn_yes_remove = "🗑 بله، حذف کن"
 btn_cancel = "❌ لغو"
 remove_success = "✅ کاربر با موفقیت حذف شد."
@@ -290,6 +290,7 @@ pdf_panel = "پنل: {panel}"
 pdf_subscription = "اشتراک: {link}"
 pdf_page = "صفحه {page}/{total}"
 pdf_account_title = "حساب: {email}"
+pdf_bulk_title = "حساب‌های دسته‌جمعی ({count})"
 
 # ── Owner Panel ─────────────────────────────────────────────────────────────
 btn_owner_panel = "⚙️ پنل مدیریت"

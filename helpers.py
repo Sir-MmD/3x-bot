@@ -391,10 +391,11 @@ def extract_ids_from_content(text: str) -> list[str]:
     return result
 
 
-def search_result_buttons(uid: int, status: str):
+def search_result_buttons(uid: int, status: str, back_data: bytes = b"m"):
     """Build search result action buttons filtered by user permissions.
 
     status: "active", "depleted", or "disabled"
+    back_data: callback data for the back button (default: main menu)
     """
     btns = []
     row1 = []
@@ -418,7 +419,7 @@ def search_result_buttons(uid: int, status: str):
     if has_perm(uid, "pdf"):
         row3.append(Button.inline(t("btn_pdf", uid), b"pdf"))
         row3.append(Button.inline(t("btn_txt", uid), b"txt"))
-    row3.append(Button.inline(t("btn_back", uid), b"m"))
+    row3.append(Button.inline(t("btn_back", uid), back_data))
     btns.append(row3)
     return btns
 

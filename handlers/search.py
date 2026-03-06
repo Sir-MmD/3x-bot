@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import time
+from datetime import datetime
 
 from telethon import events, Button
 
@@ -13,8 +14,10 @@ from panel import build_client_link, SUPPORTED_PROTOCOLS
 from pdf_export import generate_account_pdf
 
 
-async def show_search_result(event, uid: int, email: str, panel_name: str | None = None):
+async def show_search_result(event, uid: int, email: str, panel_name: str | None = None, back_data: bytes | None = None):
     s = st(uid)
+    if back_data is not None:
+        s["sr_back"] = back_data
 
     if panel_name:
         # Search specific panel — verify access
@@ -113,7 +116,8 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
             "",
             t("unsupported_protocol", uid, protocol=protocol),
         ]
-        btns = [[Button.inline(t("btn_back", uid), b"m")]]
+        back = s.get("sr_back", b"m")
+        btns = [[Button.inline(t("btn_back", uid), back)]]
         await reply(event, "\n".join(lines), buttons=btns)
         log_activity(uid, "search", json.dumps({"email": actual_email, "panel": found_panel}))
         return
@@ -163,7 +167,8 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
             t("sr_simple_traffic", uid, remaining=remaining_gb),
             t("sr_simple_duration", uid, remaining=remaining_days),
         ]
-        btns = [[Button.inline(t("btn_back", uid), b"m")]]
+        back = s.get("sr_back", b"m")
+        btns = [[Button.inline(t("btn_back", uid), back)]]
         await reply(event, "\n".join(lines), buttons=btns)
         log_activity(uid, "search", json.dumps({"email": actual_email, "panel": found_panel}))
         return
@@ -198,7 +203,7 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
         lines += ["", f"`{proxy_link}`"]
     text = "\n".join(lines)
 
-    btns = search_result_buttons(uid, status)
+    btns = search_result_buttons(uid, status, back_data=s.get("sr_back", b"m"))
 
     if proxy_link:
         qr = make_qr(proxy_link)
@@ -264,9 +269,11 @@ def register(bot):
     @auth("remove")
     async def cb_remove(event):
         uid = event.sender_id
+        s = st(uid)
+        email = s.get("sr_email", "?")
         await reply(
             event,
-            t("confirm_remove", uid),
+            t("confirm_remove", uid, email=email),
             buttons=[
                 [
                     Button.inline(t("btn_yes_remove", uid), b"crm"),
@@ -391,7 +398,8 @@ def register(bot):
             lines.append(f"Subscription: {sub_link}")
 
         txt_buf = io.BytesIO("\n".join(lines).encode("utf-8"))
-        txt_buf.name = f"{email}.txt"
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        txt_buf.name = f"{email}_{stamp}.txt"
         await answer(event, t("generating_txt", uid))
         await bot.send_file(event.chat_id, txt_buf, caption=t("account_txt", uid))
         log_activity(uid, "txt_export", json.dumps({"email": email, "panel": pid}))

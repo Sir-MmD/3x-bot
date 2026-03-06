@@ -1,6 +1,7 @@
 import io
 import json
 import time
+from datetime import datetime
 
 from telethon import events, Button
 
@@ -12,6 +13,7 @@ from helpers import (
 )
 from i18n import t
 from panel import build_client_link, SUPPORTED_PROTOCOLS
+from pdf_export import generate_account_pdf
 
 
 async def _create_client(event, uid: int):
@@ -67,7 +69,8 @@ async def _create_client(event, uid: int):
     log_activity(uid, "create", json.dumps({"email": email, "panel": panel_name, "inbound": iid}))
 
     from handlers.search import show_search_result
-    await show_search_result(event, uid, email, panel_name=panel_name)
+    await show_search_result(event, uid, email, panel_name=panel_name,
+                             back_data=f"ib:{panel_name}:{iid}".encode())
 
 
 async def _bulk_create_clients(event, uid: int):
@@ -184,8 +187,10 @@ async def _bulk_create_clients(event, uid: int):
         parse_mode="md",
     )
 
-    # Send TXT file with created account details
+    # Send TXT and PDF files with created account details
     if created:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
         txt_lines = []
         for acc in created:
             block = [f"Account ID: {acc['email']}"]
@@ -199,8 +204,15 @@ async def _bulk_create_clients(event, uid: int):
             block.append("")
             txt_lines.extend(block)
         txt_buf = io.BytesIO("\n".join(txt_lines).encode("utf-8"))
-        txt_buf.name = f"bulk-{panel_name}-{remark}.txt"
+        txt_buf.name = f"bulk-{panel_name}-{remark}_{stamp}.txt"
         await bot.send_file(event.chat_id, txt_buf, caption=t("account_txt", uid))
+
+        pdf_buf = generate_account_pdf(
+            created,
+            title=t("pdf_bulk_title", uid, count=len(created)),
+            uid=uid,
+        )
+        await bot.send_file(event.chat_id, pdf_buf, caption=t("account_pdf", uid))
 
     clear(uid)
 
