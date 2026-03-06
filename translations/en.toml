@@ -59,7 +59,7 @@ btn_days = "⏳ Days"
 btn_pdf = "📄 PDF"
 
 # ── Remove ───────────────────────────────────────────────────────────────────
-confirm_remove = "⚠️ Are you sure you want to remove this user?"
+confirm_remove = "⚠️ Are you sure you want to remove `{email}`?"
 btn_yes_remove = "🗑 Yes, Remove"
 btn_cancel = "❌ Cancel"
 remove_success = "✅ User removed successfully."
@@ -290,6 +290,7 @@ pdf_panel = "Panel: {panel}"
 pdf_subscription = "Subscription: {link}"
 pdf_page = "Page {page}/{total}"
 pdf_account_title = "Account: {email}"
+pdf_bulk_title = "Bulk Accounts ({count})"
 
 # ── Owner Panel ─────────────────────────────────────────────────────────────
 btn_owner_panel = "⚙️ Owner Panel"

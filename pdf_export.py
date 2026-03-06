@@ -1,6 +1,8 @@
 import io
+import os
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from fpdf import FPDF
@@ -87,6 +89,7 @@ def generate_account_pdf(accounts: list[dict], title: str, uid: int = 0) -> io.B
     pdf.set_auto_page_break(auto=True, margin=15)
 
     use_uni = pdf._use_unicode
+    tmp_files = []
 
     def _text(s: str) -> str:
         return s if use_uni else _sanitize(s)
@@ -148,6 +151,7 @@ def generate_account_pdf(accounts: list[dict], title: str, uid: int = 0) -> io.B
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
                 tmp.write(qr_img.read())
                 tmp_path = tmp.name
+            tmp_files.append(tmp_path)
             pdf.image(tmp_path, x=qr_x, y=qr_y, w=qr_size, h=qr_size)
 
             # Proxy link beside the QR code in monospace
@@ -168,7 +172,16 @@ def generate_account_pdf(accounts: list[dict], title: str, uid: int = 0) -> io.B
     buf = io.BytesIO()
     buf.write(pdf.output())
     buf.seek(0)
-    buf.name = "accounts.pdf"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    buf.name = f"accounts_{stamp}.pdf"
+
+    # Clean up temp QR image files
+    for f in tmp_files:
+        try:
+            os.unlink(f)
+        except OSError:
+            pass
+
     return buf
 
 

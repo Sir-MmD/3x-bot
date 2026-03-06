@@ -59,7 +59,7 @@ btn_days = "⏳ Дни"
 btn_pdf = "📄 PDF"
 
 # ── Remove ───────────────────────────────────────────────────────────────────
-confirm_remove = "⚠️ Вы уверены, что хотите удалить этого пользователя?"
+confirm_remove = "⚠️ Вы уверены, что хотите удалить `{email}`?"
 btn_yes_remove = "🗑 Да, удалить"
 btn_cancel = "❌ Отмена"
 remove_success = "✅ Пользователь успешно удалён."
@@ -290,6 +290,7 @@ pdf_panel = "Панель: {panel}"
 pdf_subscription = "Подписка: {link}"
 pdf_page = "Стр. {page}/{total}"
 pdf_account_title = "Аккаунт: {email}"
+pdf_bulk_title = "Массовые аккаунты ({count})"
 
 # ── Owner Panel ─────────────────────────────────────────────────────────────
 btn_owner_panel = "⚙️ Панель владельца"
