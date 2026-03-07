@@ -284,6 +284,8 @@ async def reply(event, text, buttons=None, file=None):
     """Send a reply, handling photo<->text transitions for callbacks."""
     chat = event.chat_id
     is_cb = isinstance(event, events.CallbackQuery.Event)
+    if is_cb:
+        event._answered = True
     if file:
         if is_cb:
             try:
@@ -420,6 +422,8 @@ def search_result_buttons(uid: int, status: str, back_data: bytes = b"m"):
         row3.append(Button.inline(t("btn_pdf", uid), b"pdf"))
         row3.append(Button.inline(t("btn_txt", uid), b"txt"))
     row3.append(Button.inline(t("btn_back", uid), back_data))
+    if back_data != b"m":
+        row3.append(Button.inline(t("btn_main_menu", uid), b"m"))
     btns.append(row3)
     return btns
 

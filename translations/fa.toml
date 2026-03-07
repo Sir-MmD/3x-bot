@@ -47,6 +47,7 @@ sr_duration = "⏳ مدت: {duration}"
 sr_inbound = "🌐 اینباند: {remark}"
 sr_subscription = "🔗 اشتراک: `{link}`"
 sr_alltime = "📈 کل مصرف: {total}"
+sr_not_used = "⏱ هنوز استفاده نشده"
 unsupported_protocol = "⚠️ پروتکل **{protocol}** پشتیبانی نمی‌شود. فقط vmess، vless، trojan و shadowsocks پشتیبانی می‌شوند."
 unsupported_protocol_short = "⚠️ پروتکل {protocol} پشتیبانی نمی‌شود."
 
@@ -299,6 +300,10 @@ op_version = "🏷 نسخه: {version}"
 btn_manage_admins = "👥 مدیریت ادمین‌ها"
 btn_manage_panels = "🖥 مدیریت پنل‌ها"
 btn_settings = "🔧 تنظیمات"
+btn_list_users = "📋 کاربران ربات"
+op_users_title = "📋 **کاربران ربات** ({count})"
+op_users_empty = "هنوز هیچ کاربری با ربات تعامل نداشته است."
+op_users_page = "📄 صفحه {page}/{total}"
 
 # ── Admin Management ────────────────────────────────────────────────────────
 op_admins_title = "👥 **ادمین‌ها**"

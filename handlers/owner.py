@@ -6,7 +6,7 @@ from config import (
     st, clear, is_owner, ALL_PERMS, owner_id, panels,
     VERSION,
 )
-from db import get_db_admins, get_setting
+from db import get_db_admins, get_setting, get_all_user_profiles
 from helpers import auth, reply
 from i18n import t
 
@@ -154,6 +154,7 @@ async def _show_owner_panel(event, uid: int):
         [Button.inline(t("btn_manage_admins", uid), b"op:admins")],
         [Button.inline(t("btn_manage_panels", uid), b"op:panels")],
         [Button.inline(t("btn_settings", uid), b"op:set")],
+        [Button.inline(t("btn_list_users", uid), b"op:ul")],
         [Button.inline(t("btn_backup_restore", uid), b"op:br")],
         [Button.inline(t("btn_restart", uid), b"op:restart")],
         [Button.inline(t("btn_back", uid), b"m")],
@@ -225,6 +226,54 @@ def register(bot):
         uid = event.sender_id
         clear(uid)
         await _show_owner_panel(event, uid)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:ul(?::(\d+))?$"))
+    @auth
+    @_require_owner
+    async def cb_user_list(event):
+        uid = event.sender_id
+        profiles = get_all_user_profiles()
+        if not profiles:
+            await reply(event, t("op_users_empty", uid),
+                        buttons=[[Button.inline(t("btn_back", uid), b"op")]])
+            return
+        m = event.pattern_match
+        page = int(m.group(1)) if m.group(1) else 0
+        per_page = 15
+        total_pages = (len(profiles) + per_page - 1) // per_page
+        page = min(page, total_pages - 1)
+        start = page * per_page
+        page_profiles = profiles[start:start + per_page]
+
+        lines = [t("op_users_title", uid, count=len(profiles))]
+        if total_pages > 1:
+            lines.append(t("op_users_page", uid, page=page + 1, total=total_pages))
+        lines.append("")
+        for user_id, first, last, username, phone, bio in page_profiles:
+            name = f"{first} {last}".strip() or "—"
+            parts = [f"👤 **{name}**"]
+            id_line = f"🆔 `{user_id}`"
+            if username:
+                id_line += f" · @{username}"
+            parts.append(id_line)
+            if phone:
+                parts.append(f"📱 `{phone}`")
+            if bio:
+                truncated = (bio[:80] + "…") if len(bio) > 80 else bio
+                parts.append(f"📝 {truncated}")
+            lines.append("\n".join(parts))
+            lines.append("")
+
+        btns = []
+        nav = []
+        if page > 0:
+            nav.append(Button.inline("◀️", f"op:ul:{page - 1}".encode()))
+        if page < total_pages - 1:
+            nav.append(Button.inline("▶️", f"op:ul:{page + 1}".encode()))
+        if nav:
+            btns.append(nav)
+        btns.append([Button.inline(t("btn_back", uid), b"op")])
+        await reply(event, "\n".join(lines), buttons=btns)
 
     # Register sub-modules
     admins.register(bot)

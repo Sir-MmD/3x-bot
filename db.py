@@ -501,6 +501,17 @@ def get_profile_updated_at(uid: int) -> float:
     return 0.0
 
 
+def get_all_user_profiles() -> list[tuple[int, str, str, str, str, str]]:
+    """Return all (user_id, first_name, last_name, username, phone, bio)."""
+    con = sqlite3.connect(_DB_PATH)
+    rows = con.execute(
+        "SELECT user_id, first_name, last_name, username, phone, bio"
+        " FROM user_profiles ORDER BY user_id"
+    ).fetchall()
+    con.close()
+    return rows
+
+
 # ── Activity Log ─────────────────────────────────────────────────────────────
 
 def log_activity(uid: int, action: str, detail: str = ""):

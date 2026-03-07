@@ -47,6 +47,7 @@ sr_duration = "⏳ Срок: {duration}"
 sr_inbound = "🌐 Инбаунд: {remark}"
 sr_subscription = "🔗 Подписка: `{link}`"
 sr_alltime = "📈 Всего: {total}"
+sr_not_used = "⏱ Ещё не использовался"
 unsupported_protocol = "⚠️ Протокол **{protocol}** не поддерживается. Поддерживаются только vmess, vless, trojan и shadowsocks."
 unsupported_protocol_short = "⚠️ Протокол {protocol} не поддерживается."
 
@@ -299,6 +300,10 @@ op_version = "🏷 Версия: {version}"
 btn_manage_admins = "👥 Управление админами"
 btn_manage_panels = "🖥 Управление панелями"
 btn_settings = "🔧 Настройки"
+btn_list_users = "📋 Пользователи бота"
+op_users_title = "📋 **Пользователи бота** ({count})"
+op_users_empty = "Ещё ни один пользователь не взаимодействовал с ботом."
+op_users_page = "📄 Страница {page}/{total}"
 
 # ── Admin Management ────────────────────────────────────────────────────────
 op_admins_title = "👥 **Админы**"

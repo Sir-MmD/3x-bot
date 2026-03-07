@@ -47,6 +47,7 @@ sr_duration = "⏳ Duration: {duration}"
 sr_inbound = "🌐 Inbound: {remark}"
 sr_subscription = "🔗 Subscription: `{link}`"
 sr_alltime = "📈 All-time: {total}"
+sr_not_used = "⏱ Not used yet"
 unsupported_protocol = "⚠️ Protocol **{protocol}** is not supported. Only vmess, vless, trojan, and shadowsocks are supported."
 unsupported_protocol_short = "⚠️ Protocol {protocol} is not supported."
 
@@ -299,6 +300,10 @@ op_version = "🏷 Version: {version}"
 btn_manage_admins = "👥 Manage Admins"
 btn_manage_panels = "🖥 Manage Panels"
 btn_settings = "🔧 Settings"
+btn_list_users = "📋 Bot Users"
+op_users_title = "📋 **Bot Users** ({count})"
+op_users_empty = "No users have interacted with the bot yet."
+op_users_page = "📄 Page {page}/{total}"
 
 # ── Admin Management ────────────────────────────────────────────────────────
 op_admins_title = "👥 **Admins**"

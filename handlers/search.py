@@ -161,12 +161,16 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
                 remaining_days = t("expired", uid)
             else:
                 remaining_days = t("days_unit", uid, value=dur_ms // 86_400_000)
+                if exp < 0:
+                    remaining_days += f" ({t('after_first_use', uid)})"
         lines = [
             t("sr_email", uid, email=actual_email),
             t(status_key, uid),
             t("sr_simple_traffic", uid, remaining=remaining_gb),
             t("sr_simple_duration", uid, remaining=remaining_days),
         ]
+        if exp < 0:
+            lines.append(t("sr_not_used", uid))
         back = s.get("sr_back", b"m")
         btns = [[Button.inline(t("btn_back", uid), back)]]
         await reply(event, "\n".join(lines), buttons=btns)
@@ -194,6 +198,10 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
         t("sr_remaining", uid, remaining=format_bytes(remaining) if total > 0 else unlim),
         "",
         t("sr_duration", uid, duration=format_expiry(client.get("expiryTime", 0), uid)),
+    ]
+    if client.get("expiryTime", 0) < 0:
+        lines.append(t("sr_not_used", uid))
+    lines += [
         t("sr_inbound", uid, remark=inbound.get("remark", "?")),
     ]
     if sub_link:
