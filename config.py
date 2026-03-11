@@ -14,7 +14,10 @@ from panel import PanelClient
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
-DATA_DIR = Path.home() / "3x-bot"
+if getattr(sys, "frozen", False):
+    DATA_DIR = Path(sys.executable).resolve().parent
+else:
+    DATA_DIR = Path(__file__).resolve().parent
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 _CONFIG_PATH = DATA_DIR / "config.toml"
 

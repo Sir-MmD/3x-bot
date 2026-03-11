@@ -1,10 +1,14 @@
 import json
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-_DB_PATH = str(Path.home() / "3x-bot" / "3x-bot.db")
+if getattr(sys, "frozen", False):
+    _DB_PATH = str(Path(sys.executable).resolve().parent / "3x-bot.db")
+else:
+    _DB_PATH = str(Path(__file__).resolve().parent / "3x-bot.db")
 
 
 # ── Dataclasses ──────────────────────────────────────────────────────────────
