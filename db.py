@@ -5,7 +5,11 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-if getattr(sys, "frozen", False):
+import os as _os
+_prog = _os.environ.get("STATICX_PROG_PATH")
+if _prog:
+    _DB_PATH = str(Path(_prog).resolve().parent / "3x-bot.db")
+elif getattr(sys, "frozen", False):
     _DB_PATH = str(Path(sys.executable).resolve().parent / "3x-bot.db")
 else:
     _DB_PATH = str(Path(__file__).resolve().parent / "3x-bot.db")

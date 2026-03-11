@@ -1,3 +1,4 @@
+import os
 import sys
 import tomllib
 from pathlib import Path
@@ -14,7 +15,10 @@ from panel import PanelClient
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
-if getattr(sys, "frozen", False):
+_prog = os.environ.get("STATICX_PROG_PATH")
+if _prog:
+    DATA_DIR = Path(_prog).resolve().parent
+elif getattr(sys, "frozen", False):
     DATA_DIR = Path(sys.executable).resolve().parent
 else:
     DATA_DIR = Path(__file__).resolve().parent
