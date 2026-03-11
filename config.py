@@ -151,7 +151,7 @@ def user_perms(uid: int) -> set[str]:
         return ALL_PERMS if "*" in p else p
     if get_setting("public_mode") == "1":
         perms = _parse_json_set(get_setting("public_permissions"))
-        return ALL_PERMS if "*" in perms else perms
+        return ALL_PERMS if "*" in perms else (perms or {"_public"})
     return set()
 
 
