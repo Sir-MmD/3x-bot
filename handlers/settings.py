@@ -49,6 +49,12 @@ async def _show_settings(event, uid: int):
     else:
         lines.append(t("op_rate_limit_none", uid))
 
+    caption = get_setting("simple_search_caption")
+    if caption:
+        lines.append(t("op_simple_caption_label", uid, caption=caption))
+    else:
+        lines.append(t("op_simple_caption_none", uid))
+
     btns = [
         [Button.inline(t("btn_toggle_public", uid), b"op:tpm")],
         [Button.inline(t("btn_edit_public_perms", uid), b"op:epp")],
@@ -57,6 +63,7 @@ async def _show_settings(event, uid: int):
         [Button.inline(t("btn_edit_force_join", uid), b"op:fj")],
     ]
     btns.append([Button.inline(t("btn_edit_rate_limit", uid), b"op:erl")])
+    btns.append([Button.inline(t("btn_edit_simple_caption", uid), b"op:esc")])
     btns.append([Button.inline(t("btn_back", uid), b"op"),
                  Button.inline(t("btn_main_menu", uid), b"m")])
     await reply(event, "\n".join(lines), buttons=btns)
@@ -253,6 +260,26 @@ async def _handle_force_join_input(event, uid, s):
 
 
 # ── Text Input Handlers ────────────────────────────────────────────────────
+
+
+async def _handle_simple_caption_input(event, uid, s):
+    s["state"] = None
+    text = event.message.raw_text.strip()
+    if text == "-":
+        set_setting("simple_search_caption", "")
+        log_activity(uid, "edit_simple_caption", json.dumps({"action": "cleared"}))
+        await event.respond(
+            t("op_simple_caption_cleared", uid),
+            buttons=_back_btn(uid, b"op:set"),
+        )
+    else:
+        set_setting("simple_search_caption", text)
+        log_activity(uid, "edit_simple_caption", json.dumps({"caption": text[:50]}))
+        await event.respond(
+            t("op_simple_caption_saved", uid),
+            buttons=_back_btn(uid, b"op:set"),
+        )
+    return True
 
 
 async def _handle_rl_count_custom(event, uid, s):
@@ -560,6 +587,19 @@ def register(bot):
         log_activity(uid, "clear_force_join", "{}")
         await answer(event, t("op_fj_cleared", uid))
         await _show_force_join_editor(event, uid)
+
+    @bot.on(events.CallbackQuery(data=b"op:esc"))
+    @auth
+    @_require_owner
+    async def cb_edit_simple_caption(event):
+        uid = event.sender_id
+        s = st(uid)
+        s["state"] = "op_esc"
+        current = get_setting("simple_search_caption")
+        text = t("op_simple_caption_prompt", uid)
+        if current:
+            text += "\n\n" + t("op_simple_caption_current", uid, caption=current)
+        await reply(event, text, buttons=_back_btn(uid, b"op:set"))
 
     @bot.on(events.CallbackQuery(data=b"op:erl"))
     @auth

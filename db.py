@@ -85,6 +85,11 @@ def init_db():
         con.execute("ALTER TABLE db_panels ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
     except sqlite3.OperationalError:
         pass  # column already exists
+    # Migration: add first_seen column to user_profiles
+    try:
+        con.execute("ALTER TABLE user_profiles ADD COLUMN first_seen REAL NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     con.commit()
     con.close()
 
@@ -330,6 +335,7 @@ def remove_panel_from_settings(name: str):
             del ib[name]
             con.execute("UPDATE settings SET value = ? WHERE key = 'public_inbounds'",
                         (_serialize_inbounds(ib),))
+    con.execute("DELETE FROM settings WHERE key = ?", (f"panel_auto_backup:{name}",))
     con.commit()
     _settings_cache = None
     con.close()
@@ -454,13 +460,13 @@ def upsert_user_profile(uid: int, first_name: str, last_name: str,
     now = time.time()
     con = sqlite3.connect(_DB_PATH)
     con.execute(
-        "INSERT INTO user_profiles (user_id, first_name, last_name, username, phone, bio, updated_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO user_profiles (user_id, first_name, last_name, username, phone, bio, updated_at, first_seen)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT(user_id) DO UPDATE SET"
         " first_name=excluded.first_name, last_name=excluded.last_name,"
         " username=excluded.username, phone=excluded.phone,"
         " bio=excluded.bio, updated_at=excluded.updated_at",
-        (uid, first_name, last_name, username, phone, bio, now),
+        (uid, first_name, last_name, username, phone, bio, now, now),
     )
     con.commit()
     con.close()
@@ -501,11 +507,11 @@ def get_profile_updated_at(uid: int) -> float:
     return 0.0
 
 
-def get_all_user_profiles() -> list[tuple[int, str, str, str, str, str]]:
-    """Return all (user_id, first_name, last_name, username, phone, bio)."""
+def get_all_user_profiles() -> list[tuple[int, str, str, str, str, str, float]]:
+    """Return all (user_id, first_name, last_name, username, phone, bio, first_seen)."""
     con = sqlite3.connect(_DB_PATH)
     rows = con.execute(
-        "SELECT user_id, first_name, last_name, username, phone, bio"
+        "SELECT user_id, first_name, last_name, username, phone, bio, first_seen"
         " FROM user_profiles ORDER BY user_id"
     ).fetchall()
     con.close()

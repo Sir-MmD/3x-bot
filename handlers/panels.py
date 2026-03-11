@@ -5,7 +5,7 @@ from telethon import events, Button
 
 from config import (
     st, clear, panels, get_panel, register_panel, unregister_panel,
-    sub_urls, reload_panels,
+    sub_urls, reload_panels, is_owner, has_perm, stop_panel_auto_backup,
 )
 from db import (
     get_db_panel, add_db_panel, remove_db_panel,
@@ -26,7 +26,7 @@ async def _show_panel_list(event, uid: int):
     btns = []
     names = list(panels)
     for i, name in enumerate(names):
-        row = [Button.inline(f"🖥 {name}", f"op:pd:{name}".encode())]
+        row = [Button.inline(f"🖥 {name}", f"op:mp:{name}".encode())]
         if i > 0:
             row.append(Button.inline("⬆️", f"op:pmup:{name}".encode()))
         if i < len(names) - 1:
@@ -92,11 +92,26 @@ async def _show_panel_detail(event, uid: int, name: str):
         btns.append([Button.inline(t("btn_confirm_test", uid), b"op:pet")])
         btns.append([Button.inline(t("btn_discard", uid), f"op:ped:{n}".encode())])
     else:
-        btns.append([Button.inline(t("btn_test_connection", uid), f"op:ptc:{n}".encode()),
-                     Button.inline(t("btn_remove_panel", uid), f"op:rp:{n}".encode())])
-    btns.append([Button.inline(t("btn_back", uid), b"op:panels"),
+        row = [Button.inline(t("btn_test_connection", uid), f"op:ptc:{n}".encode())]
+        if is_owner(uid):
+            row.append(Button.inline(t("btn_remove_panel", uid), f"op:rp:{n}".encode()))
+        btns.append(row)
+    back = s.get("op_pd_back", b"op:panels" if is_owner(uid) else f"mp:{n}".encode())
+    btns.append([Button.inline(t("btn_back", uid), back),
                  Button.inline(t("btn_main_menu", uid), b"m")])
     await reply(event, "\n".join(lines), buttons=btns)
+
+
+async def _show_manage_panel(event, uid, panel_name, back_data):
+    """Render the manage panel menu (edit / stop xray / restart xray)."""
+    btns = [
+        [Button.inline(t("btn_edit_panel", uid), f"op:pd:{panel_name}".encode())],
+        [Button.inline(t("btn_stop_xray", uid), f"mp:sx:{panel_name}".encode()),
+         Button.inline(t("btn_restart_xray", uid), f"mp:rx:{panel_name}".encode())],
+        [Button.inline(t("btn_back", uid), back_data),
+         Button.inline(t("btn_main_menu", uid), b"m")],
+    ]
+    await reply(event, t("manage_panel_title", uid, panel=panel_name), buttons=btns)
 
 
 # ── Proxy Helpers ───────────────────────────────────────────────────────────
@@ -376,11 +391,15 @@ def register(bot):
         await _show_panel_list(event, uid)
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:pd:([^:]+)$"))
-    @auth
-    @_require_owner
+    @auth("manage_panel")
     async def cb_panel_detail(event):
+        uid = event.sender_id
         name = event.pattern_match.group(1).decode()
-        await _show_panel_detail(event, event.sender_id, name)
+        s = st(uid)
+        # Set back destination if not already set by manage panel flow
+        if "op_pd_back" not in s:
+            s["op_pd_back"] = b"op:panels"
+        await _show_panel_detail(event, uid, name)
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:rp:([^:]+)$"))
     @auth
@@ -406,6 +425,7 @@ def register(bot):
                 await pc.close()
             except Exception:
                 pass
+        stop_panel_auto_backup(name)
         remove_db_panel(name)
         remove_panel_from_admins(name)
         remove_panel_from_settings(name)
@@ -428,8 +448,7 @@ def register(bot):
     # ── Proxy Step-by-Step (Add Panel: ap, Edit Panel: pe) ────────────
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:(ap|pe)pt:(\w+)$"))
-    @auth
-    @_require_owner
+    @auth("manage_panel")
     async def cb_proxy_type(event):
         uid = event.sender_id
         flow = event.pattern_match.group(1).decode()  # "ap" or "pe"
@@ -459,8 +478,7 @@ def register(bot):
                     buttons=_back_btn(uid, f"op:{flow}pt:picker".encode()))
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:(ap|pe)pa:([yn])$"))
-    @auth
-    @_require_owner
+    @auth("manage_panel")
     async def cb_proxy_auth(event):
         uid = event.sender_id
         flow = event.pattern_match.group(1).decode()
@@ -488,8 +506,7 @@ def register(bot):
     # ── Edit Panel ─────────────────────────────────────────────────────
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:pe:(\w+):([A-Za-z0-9_-]+)$"))
-    @auth
-    @_require_owner
+    @auth("manage_panel")
     async def cb_panel_edit_start(event):
         uid = event.sender_id
         field = event.pattern_match.group(1).decode()
@@ -524,8 +541,7 @@ def register(bot):
                     buttons=_back_btn(uid, f"op:pd:{name}".encode()))
 
     @bot.on(events.CallbackQuery(data=b"op:pet"))
-    @auth
-    @_require_owner
+    @auth("manage_panel")
     async def cb_panel_edit_test(event):
         """Apply all pending edits — test connection first if needed."""
         uid = event.sender_id
@@ -606,8 +622,7 @@ def register(bot):
                     buttons=_back_btn(uid, f"op:pd:{target}".encode()))
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:ped:([^:]+)$"))
-    @auth
-    @_require_owner
+    @auth("manage_panel")
     async def cb_panel_edit_discard(event):
         """Discard all pending edits."""
         uid = event.sender_id
@@ -618,8 +633,7 @@ def register(bot):
     # ── Test Connection ────────────────────────────────────────────────
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:ptc:([^:]+)$"))
-    @auth
-    @_require_owner
+    @auth("manage_panel")
     async def cb_test_connection(event):
         uid = event.sender_id
         name = event.pattern_match.group(1).decode()
@@ -630,3 +644,60 @@ def register(bot):
             await answer(event, t("op_test_connection_ok", uid), alert=True)
         except Exception as e:
             await answer(event, t("op_test_connection_fail", uid, error=str(e)), alert=True)
+
+    # ── Manage Panel (from panel sub-menu or owner panel list) ────────
+
+    @bot.on(events.CallbackQuery(pattern=rb"^op:mp:(.+)$"))
+    @auth
+    @_require_owner
+    async def cb_owner_manage_panel(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        if panel_name not in panels:
+            return
+        s = st(uid)
+        s["op_pd_back"] = f"op:mp:{panel_name}".encode()
+        await _show_manage_panel(event, uid, panel_name, b"op:panels")
+
+    @bot.on(events.CallbackQuery(pattern=rb"^mp:sx:(.+)$"))
+    @auth("manage_panel")
+    async def cb_stop_xray(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        p = get_panel(panel_name)
+        if not p:
+            return
+        try:
+            await p.stop_xray()
+        except RuntimeError as e:
+            await answer(event, str(e), alert=True)
+            return
+        log_activity(uid, "stop_xray", json.dumps({"panel": panel_name}))
+        await answer(event, t("xray_stopped", uid), alert=True)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^mp:rx:(.+)$"))
+    @auth("manage_panel")
+    async def cb_restart_xray(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        p = get_panel(panel_name)
+        if not p:
+            return
+        try:
+            await p.restart_xray()
+        except RuntimeError as e:
+            await answer(event, str(e), alert=True)
+            return
+        log_activity(uid, "restart_xray", json.dumps({"panel": panel_name}))
+        await answer(event, t("xray_restarted", uid), alert=True)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^mp:(.+)$"))
+    @auth("manage_panel")
+    async def cb_manage_panel(event):
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        if panel_name not in panels:
+            return
+        s = st(uid)
+        s["op_pd_back"] = f"mp:{panel_name}".encode()
+        await _show_manage_panel(event, uid, panel_name, f"pm:{panel_name}".encode())

@@ -197,6 +197,9 @@ async def handle_owner_input(event) -> bool:
     if state == "op_fj":
         from .settings import _handle_force_join_input
         return await _handle_force_join_input(event, uid, s)
+    if state == "op_esc":
+        from .settings import _handle_simple_caption_input
+        return await _handle_simple_caption_input(event, uid, s)
     if state == "op_rl_count_custom":
         from .settings import _handle_rl_count_custom
         return await _handle_rl_count_custom(event, uid, s)
@@ -206,6 +209,9 @@ async def handle_owner_input(event) -> bool:
     if state == "op_ab_input":
         from .backup import _handle_auto_backup_input
         return await _handle_auto_backup_input(event, uid, s)
+    if state == "op_pab_input":
+        from .backup import _handle_panel_auto_backup_input
+        return await _handle_panel_auto_backup_input(event, uid, s)
     return False
 
 
@@ -249,7 +255,7 @@ def register(bot):
         if total_pages > 1:
             lines.append(t("op_users_page", uid, page=page + 1, total=total_pages))
         lines.append("")
-        for user_id, first, last, username, phone, bio in page_profiles:
+        for user_id, first, last, username, phone, bio, first_seen in page_profiles:
             name = f"{first} {last}".strip() or "—"
             parts = [f"👤 **{name}**"]
             id_line = f"🆔 `{user_id}`"
@@ -261,6 +267,12 @@ def register(bot):
             if bio:
                 truncated = (bio[:80] + "…") if len(bio) > 80 else bio
                 parts.append(f"📝 {truncated}")
+            if first_seen and first_seen > 0:
+                from datetime import datetime, timezone
+                local_dt = datetime.fromtimestamp(first_seen).astimezone()
+                tz_name = local_dt.strftime("%Z") or local_dt.strftime("%z")
+                fs_str = local_dt.strftime("%Y-%m-%d %H:%M") + f" ({tz_name})"
+                parts.append(t("op_users_first_seen", uid, date=fs_str))
             lines.append("\n".join(parts))
             lines.append("")
 
@@ -272,7 +284,8 @@ def register(bot):
             nav.append(Button.inline("▶️", f"op:ul:{page + 1}".encode()))
         if nav:
             btns.append(nav)
-        btns.append([Button.inline(t("btn_back", uid), b"op")])
+        btns.append([Button.inline(t("btn_back", uid), b"op"),
+                     Button.inline(t("btn_main_menu", uid), b"m")])
         await reply(event, "\n".join(lines), buttons=btns)
 
     # Register sub-modules

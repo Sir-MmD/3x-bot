@@ -142,6 +142,71 @@ class PanelClient:
         self.invalidate_cache()
         return data
 
+    async def get_db(self) -> bytes:
+        """Download the panel database file."""
+        if not self._logged_in:
+            await self._do_login()
+        retry = False
+        try:
+            resp = await self._client.get(self.url + "/panel/api/server/getDb")
+            if resp.status_code == 404:
+                retry = True
+        except httpx.TransportError:
+            retry = True
+        if retry:
+            await self._do_login()
+            try:
+                resp = await self._client.get(self.url + "/panel/api/server/getDb")
+            except httpx.TransportError as e:
+                raise RuntimeError(f"Panel unreachable: {e}")
+        if resp.status_code != 200:
+            raise RuntimeError(f"getDb failed: HTTP {resp.status_code}")
+        return resp.content
+
+    async def import_db(self, db_data: bytes):
+        """Upload a database file to the panel."""
+        if not self._logged_in:
+            await self._do_login()
+        files = {"db": ("x-ui.db", db_data, "application/octet-stream")}
+        retry = False
+        try:
+            resp = await self._client.post(self.url + "/panel/api/server/importDB", files=files)
+            if resp.status_code == 404:
+                retry = True
+        except httpx.TransportError:
+            retry = True
+        if retry:
+            await self._do_login()
+            files = {"db": ("x-ui.db", db_data, "application/octet-stream")}
+            try:
+                resp = await self._client.post(self.url + "/panel/api/server/importDB", files=files)
+            except httpx.TransportError as e:
+                raise RuntimeError(f"Panel unreachable: {e}")
+        data = resp.json()
+        if not data.get("success"):
+            raise RuntimeError(f"importDB failed: {data.get('msg')}")
+        self.invalidate_cache()
+        return data
+
+    async def restart_panel(self):
+        """Restart the 3x-ui panel."""
+        data = await self._request("POST", "/panel/setting/restartPanel")
+        return data
+
+    async def stop_xray(self):
+        """Stop the Xray service."""
+        data = await self._request("POST", "/panel/api/server/stopXrayService")
+        if not data.get("success"):
+            raise RuntimeError(f"stopXray failed: {data.get('msg')}")
+        return data
+
+    async def restart_xray(self):
+        """Restart the Xray service."""
+        data = await self._request("POST", "/panel/api/server/restartXrayService")
+        if not data.get("success"):
+            raise RuntimeError(f"restartXray failed: {data.get('msg')}")
+        return data
+
     async def find_client_by_email(self, email: str):
         """Search all inbounds for a client with matching email.
 

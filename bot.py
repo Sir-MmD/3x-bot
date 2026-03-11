@@ -11,7 +11,7 @@ from telethon.tl.functions.bots import SetBotCommandsRequest
 from telethon.tl.types import BotCommand, BotCommandScopeDefault
 
 import config
-from config import bot, cfg, load_db_panels, VERSION, AUTHOR, start_auto_backup
+from config import bot, cfg, load_db_panels, VERSION, AUTHOR, start_auto_backup, start_panel_auto_backup
 from db import init_db, get_setting
 from i18n import t
 from handlers import menu, search, modify, create, inbounds, bulk_ops, owner, router
@@ -57,6 +57,13 @@ async def main():
             start_auto_backup(int(ab_interval))
         except (ValueError, TypeError):
             pass
+    for pname in list(config.panels):
+        pab_val = get_setting(f"panel_auto_backup:{pname}")
+        if pab_val:
+            try:
+                start_panel_auto_backup(pname, int(pab_val))
+            except (ValueError, TypeError):
+                pass
 
     print(f"3x-bot v{VERSION} by {AUTHOR} — Bot is running...")
     await bot.run_until_disconnected()

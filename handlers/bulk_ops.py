@@ -18,6 +18,9 @@ def _back_data(uid: int) -> bytes:
     s = st(uid)
     source = s.get("bo_source", "main")
     if source == "main":
+        # Single-panel case skips panel selector, so back goes to main menu
+        if len(s.get("bo_panels", set())) <= 1:
+            return b"m"
         return b"bom_start"
     return f"pm:{source}".encode()
 

@@ -114,7 +114,7 @@ def register(bot):
         uid = event.sender_id
         s = st(uid)
         state = s.get("state")
-        if state == "op_rs":
+        if state in ("op_rs", "op_prs"):
             await handle_owner_restore(event)
             return
         # Accept .txt file uploads for bulk ID entry

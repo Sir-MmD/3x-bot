@@ -7,7 +7,7 @@ from datetime import datetime
 from telethon import events, Button
 
 from config import panels, server_addrs, sub_urls, get_panel, st, clear, bot, visible_panels, user_inbounds, has_perm
-from db import log_activity
+from db import log_activity, get_setting
 from helpers import format_bytes, format_expiry, make_qr, auth, reply, answer, search_result_buttons
 from i18n import t
 from panel import build_client_link, SUPPORTED_PROTOCOLS
@@ -171,6 +171,10 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
         ]
         if exp < 0:
             lines.append(t("sr_not_used", uid))
+        caption = get_setting("simple_search_caption")
+        if caption:
+            lines.append("")
+            lines.append(caption)
         back = s.get("sr_back", b"m")
         btns = [[Button.inline(t("btn_back", uid), back)]]
         await reply(event, "\n".join(lines), buttons=btns)
@@ -212,6 +216,14 @@ async def show_search_result(event, uid: int, email: str, panel_name: str | None
     text = "\n".join(lines)
 
     btns = search_result_buttons(uid, status, back_data=s.get("sr_back", b"m"))
+
+    # Add re-create button if we just created this account
+    rcr = s.get("rcr")
+    if rcr and has_perm(uid, "create"):
+        from .create import _recreate_label
+        label = _recreate_label(uid, rcr.get("duration_days", 0),
+                                rcr.get("traffic_gb", 0), rcr.get("start_after_use", False))
+        btns.insert(0, [Button.inline(label, b"rcr")])
 
     if proxy_link:
         qr = make_qr(proxy_link)

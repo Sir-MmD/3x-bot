@@ -109,7 +109,7 @@ id = {owner}
 
 cfg = _read_config()
 
-ALL_PERMS = {"search", "search_simple", "create", "modify", "toggle", "remove", "bulk", "pdf"}
+ALL_PERMS = {"search", "search_simple", "create", "modify", "toggle", "remove", "bulk", "pdf", "manage_panel"}
 
 owner_id: int = cfg["owner"]["id"]
 
@@ -368,3 +368,57 @@ def stop_auto_backup():
     if _auto_backup_task is not None:
         _auto_backup_task.cancel()
         _auto_backup_task = None
+
+
+# ── Panel Auto-Backup ────────────────────────────────────────────────────────
+
+_panel_auto_backup_tasks: dict[str, asyncio.Task] = {}
+
+
+async def _panel_auto_backup_loop(panel_name: str, interval: int):
+    """Background loop that sends a specific panel's DB backup to all owners."""
+    import io
+    from datetime import datetime
+    from i18n import t
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            pc = panels.get(panel_name)
+            if not pc:
+                continue
+            now = datetime.now()
+            stamp = now.strftime("%Y-%m-%d_%H-%M")
+            db_data = await pc.get_db()
+            buf = io.BytesIO(db_data)
+            buf.name = f"{panel_name}-x-ui-{stamp}.db"
+            caption = t("panel_auto_backup_caption", 0,
+                        panel=panel_name,
+                        date=now.strftime("%Y/%m/%d"),
+                        time=now.strftime("%H:%M"))
+            for uid in _get_owner_uids():
+                try:
+                    buf.seek(0)
+                    await bot.send_file(uid, buf, caption=caption)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
+def start_panel_auto_backup(panel_name: str, interval: int):
+    """Start or restart the auto-backup task for a specific panel."""
+    stop_panel_auto_backup(panel_name)
+    _panel_auto_backup_tasks[panel_name] = asyncio.ensure_future(
+        _panel_auto_backup_loop(panel_name, interval))
+
+
+def stop_panel_auto_backup(panel_name: str | None = None):
+    """Cancel auto-backup task(s). If panel_name given, stop only that panel."""
+    if panel_name is None:
+        for task in _panel_auto_backup_tasks.values():
+            task.cancel()
+        _panel_auto_backup_tasks.clear()
+    else:
+        task = _panel_auto_backup_tasks.pop(panel_name, None)
+        if task is not None:
+            task.cancel()

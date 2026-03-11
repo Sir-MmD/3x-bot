@@ -4,7 +4,7 @@ import time
 
 from telethon import events, Button
 
-from config import get_panel, clear, has_perm, user_perms, visible_panels, visible_inbounds, user_inbounds
+from config import get_panel, clear, has_perm, is_owner, user_perms, visible_panels, visible_inbounds, user_inbounds
 from db import log_activity
 from helpers import auth, reply, answer, format_client_line, format_bytes
 from i18n import t
@@ -92,6 +92,8 @@ def register(bot):
             btns.append([Button.inline(t("btn_inbound_list_short", uid), f"il:{panel_name}".encode())])
         if has_perm(uid, "bulk"):
             btns.append([Button.inline(t("btn_bulk_operation", uid), f"bo:{panel_name}".encode())])
+        if is_owner(uid) or has_perm(uid, "manage_panel"):
+            btns.append([Button.inline(t("btn_manage_panel", uid), f"mp:{panel_name}".encode())])
         btns.append([Button.inline(t("btn_back", uid), b"m")])
         await reply(event, text, buttons=btns)
 

@@ -5,7 +5,7 @@ from datetime import datetime
 
 from telethon import events, Button
 
-from config import get_panel, st, clear, server_addrs, sub_urls, bot, user_inbounds
+from config import get_panel, st, clear, server_addrs, sub_urls, bot, user_inbounds, visible_panels
 from db import log_activity
 from helpers import (
     format_bytes, format_expiry, rand_email, generate_bulk_emails,
@@ -14,6 +14,16 @@ from helpers import (
 from i18n import t
 from panel import build_client_link, SUPPORTED_PROTOCOLS
 from pdf_export import generate_account_pdf
+
+
+def _recreate_label(uid: int, days: int, traffic_gb: float, sau: bool, count: int = 0) -> str:
+    """Build the re-create button label."""
+    unlim = t("unlimited", uid)
+    d_part = f"{days}d" if days > 0 else unlim
+    t_part = f"{traffic_gb:.0f}GB" if traffic_gb > 0 else unlim
+    sau_part = "\U0001f552" if sau else ""
+    prefix = f"{count}x-" if count > 0 else ""
+    return f"\U0001f501 Re-Create ({prefix}{d_part}-{t_part}{sau_part})"
 
 
 async def _create_client(event, uid: int):
@@ -67,6 +77,13 @@ async def _create_client(event, uid: int):
         return
 
     log_activity(uid, "create", json.dumps({"email": email, "panel": panel_name, "inbound": iid}))
+
+    # Save re-create params
+    s["rcr"] = {
+        "pid": panel_name, "iid": iid,
+        "traffic_gb": traffic_gb, "duration_days": duration_days,
+        "start_after_use": start_after_use,
+    }
 
     from handlers.search import show_search_result
     await show_search_result(event, uid, email, panel_name=panel_name,
@@ -163,6 +180,17 @@ async def _bulk_create_clients(event, uid: int):
 
     remark = inbound.get('remark', '?')
 
+    # Save re-create params
+    s["rcr"] = {
+        "pid": panel_name, "iid": iid,
+        "traffic_gb": traffic_gb, "duration_days": duration_days,
+        "start_after_use": start_after_use,
+        "bulk_count": len(emails),
+        "bulk_method": bk.get("method", "r"),
+        "bulk_prefix": bk.get("prefix", ""),
+        "bulk_postfix": bk.get("postfix", ""),
+    }
+
     # Summary
     lines = [
         t("bulk_complete", uid),
@@ -181,11 +209,13 @@ async def _bulk_create_clients(event, uid: int):
             lines.append(f"  \u2022 `{email}`: {err}")
     text = "\n".join(lines)
     back_data = f"ib:{panel_name}:{iid}".encode()
-    await bot.send_message(
-        event.chat_id, text, buttons=[[Button.inline(t("btn_back", uid), back_data),
-                                       Button.inline(t("btn_main_menu", uid), b"m")]],
-        parse_mode="md",
-    )
+    rcr_label = _recreate_label(uid, duration_days, traffic_gb, start_after_use, count=len(emails))
+    btns = [
+        [Button.inline(rcr_label, b"rcrb")],
+        [Button.inline(t("btn_back", uid), back_data),
+         Button.inline(t("btn_main_menu", uid), b"m")],
+    ]
+    await bot.send_message(event.chat_id, text, buttons=btns, parse_mode="md")
 
     # Send TXT and PDF files with created account details
     if created:
@@ -214,8 +244,6 @@ async def _bulk_create_clients(event, uid: int):
         )
         await bot.send_file(event.chat_id, pdf_buf, caption=t("account_pdf", uid))
 
-    clear(uid)
-
 
 async def handle_create_input(event):
     """Handle cr_email, cr_traffic, cr_duration text input. Returns True if handled."""
@@ -226,12 +254,44 @@ async def handle_create_input(event):
     if state == "cr_email":
         s["state"] = None
         email = event.text.strip()
+        # Check for duplicate email across all panels
+        dup_panel = None
+        try:
+            for pname, pc in visible_panels(uid).items():
+                c, _ib, _tr = await pc.find_client_by_email(email)
+                if c is not None:
+                    dup_panel = pname
+                    break
+        except Exception:
+            pass
+        is_recreate = "traffic_gb" in s.get("cr", {})
+        back_data = (b"sr" if is_recreate
+                     else f"ca:{s['cr_pid']}:{s['cr_iid']}".encode())
+        if dup_panel:
+            s["state"] = "cr_email"
+            btns = [[Button.inline(t("btn_back", uid), back_data),
+                      Button.inline(t("btn_main_menu", uid), b"m")]]
+            if is_recreate:
+                btns.insert(0, [Button.inline(t("btn_random_email", uid), b"rcr:re")])
+            await event.respond(
+                t("create_email_duplicate", uid, email=email, panel=dup_panel)
+                + "\n\n" + t("create_email_prompt", uid),
+                buttons=btns,
+                parse_mode="md",
+            )
+            return True
         s["cr"]["email"] = email
+        if is_recreate:
+            # Re-create: skip traffic/duration, go straight to creation
+            s["state"] = None
+            await _create_client(event, uid)
+            return True
         s["state"] = "cr_traffic"
         await event.respond(
             t("enter_traffic_prompt", uid),
-            buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode()),
+            buttons=[[Button.inline(t("btn_back", uid), back_data),
                       Button.inline(t("btn_main_menu", uid), b"m")]],
+            parse_mode="md",
         )
         return True
 
@@ -592,5 +652,84 @@ def register(bot):
         s = st(uid)
         choice = event.pattern_match.group(1)
         s["bk"]["start_after_use"] = choice == b"y"
+        s["state"] = None
+        await _bulk_create_clients(event, uid)
+
+    # ── Re-Create ─────────────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"rcr"))
+    @auth("create")
+    async def cb_recreate_single(event):
+        """Re-create with same params, ask for new email."""
+        uid = event.sender_id
+        s = st(uid)
+        rcr = s.get("rcr")
+        if not rcr:
+            return
+        panel_name = rcr["pid"]
+        iid = rcr["iid"]
+        if not await _check_protocol(event, uid, panel_name, iid):
+            return
+        s["cr_iid"] = iid
+        s["cr_pid"] = panel_name
+        s["cr"] = {
+            "traffic_gb": rcr["traffic_gb"],
+            "duration_days": rcr["duration_days"],
+            "start_after_use": rcr["start_after_use"],
+        }
+        s["state"] = "cr_email"
+        await reply(
+            event,
+            t("create_email_prompt", uid),
+            buttons=[
+                [Button.inline(t("btn_random_email", uid), b"rcr:re")],
+                [Button.inline(t("btn_cancel", uid), b"sr"),
+                 Button.inline(t("btn_main_menu", uid), b"m")],
+            ],
+        )
+
+    @bot.on(events.CallbackQuery(data=b"rcr:re"))
+    @auth("create")
+    async def cb_recreate_random_email(event):
+        """Random email for re-create, skip to creation."""
+        uid = event.sender_id
+        s = st(uid)
+        cr = s.get("cr")
+        if not cr or s.get("state") != "cr_email":
+            return
+        email = rand_email()
+        cr["email"] = email
+        s["state"] = None
+        await _create_client(event, uid)
+
+    @bot.on(events.CallbackQuery(data=b"rcrb"))
+    @auth("create")
+    async def cb_recreate_bulk(event):
+        """Re-create bulk with same params + same naming method."""
+        uid = event.sender_id
+        s = st(uid)
+        rcr = s.get("rcr")
+        if not rcr or "bulk_count" not in rcr:
+            return
+        panel_name = rcr["pid"]
+        iid = rcr["iid"]
+        if not await _check_protocol(event, uid, panel_name, iid):
+            return
+        method = rcr.get("bulk_method", "r")
+        count = rcr["bulk_count"]
+        prefix = rcr.get("bulk_prefix", "")
+        postfix = rcr.get("bulk_postfix", "")
+        emails = generate_bulk_emails(method, count, prefix=prefix, postfix=postfix)
+        s["bk_iid"] = iid
+        s["bk_pid"] = panel_name
+        s["bk"] = {
+            "emails": emails,
+            "traffic_gb": rcr["traffic_gb"],
+            "duration_days": rcr["duration_days"],
+            "start_after_use": rcr["start_after_use"],
+            "method": method,
+            "prefix": prefix,
+            "postfix": postfix,
+        }
         s["state"] = None
         await _bulk_create_clients(event, uid)

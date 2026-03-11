@@ -155,7 +155,8 @@ async def _show_admin_panel_picker(event, uid: int, target_uid: int, selected: s
     btns.append([Button.inline(t("btn_confirm_add", uid), f"op:epac:{target_uid}".encode())])
     btns.append([Button.inline(t("btn_back", uid), f"op:ad:{target_uid}".encode()),
                  Button.inline(t("btn_main_menu", uid), b"m")])
-    await reply(event, t("op_edit_admin_panels_title", uid, id=target_uid), buttons=btns)
+    name = get_display_name(target_uid)
+    await reply(event, t("op_edit_admin_panels_title", uid, id=target_uid, name=name), buttons=btns)
 
 
 # ── Add Admin Panel Picker ─────────────────────────────────────────────────
@@ -198,7 +199,8 @@ async def _show_admin_inbound_panel_list(event, uid: int, target_uid: int):
         btns.append([Button.inline(f"🖥 {name}{suffix}", f"op:eip:{target_uid}:{name}".encode())])
     btns.append([Button.inline(t("btn_back", uid), f"op:ad:{target_uid}".encode()),
                  Button.inline(t("btn_main_menu", uid), b"m")])
-    await reply(event, t("op_edit_inbounds_panel_list", uid, id=target_uid), buttons=btns)
+    name = get_display_name(target_uid)
+    await reply(event, t("op_edit_inbounds_panel_list", uid, id=target_uid, name=name), buttons=btns)
 
 
 async def _show_admin_inbound_picker(event, uid: int, target_uid: int, panel_name: str):
@@ -225,7 +227,8 @@ async def _show_admin_inbound_picker(event, uid: int, target_uid: int, panel_nam
     btns.append([Button.inline(t("btn_confirm_add", uid), f"op:eipc:{target_uid}:{panel_name}".encode())])
     btns.append([Button.inline(t("btn_back", uid), f"op:ei:{target_uid}".encode()),
                  Button.inline(t("btn_main_menu", uid), b"m")])
-    await reply(event, t("op_edit_inbounds_title", uid, id=target_uid, panel=panel_name), buttons=btns)
+    name = get_display_name(target_uid)
+    await reply(event, t("op_edit_inbounds_title", uid, id=target_uid, name=name, panel=panel_name), buttons=btns)
 
 
 # ── Text Input Handlers ────────────────────────────────────────────────────
