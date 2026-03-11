@@ -36,16 +36,16 @@ def _all_admins() -> dict[int, dict]:
         "panels": {"*"},
         "inbounds": {},
     }
-    for uid, (perms, db_is_owner, admin_panels, admin_inbounds) in get_db_admins().items():
+    for uid, admin in get_db_admins().items():
         if uid == owner_id:
             continue
         result[uid] = {
-            "perms": ALL_PERMS if "*" in perms else perms,
-            "raw_perms": perms,
-            "is_owner": db_is_owner,
+            "perms": ALL_PERMS if "*" in admin.perms else admin.perms,
+            "raw_perms": admin.perms,
+            "is_owner": admin.is_owner,
             "source": "db",
-            "panels": admin_panels,
-            "inbounds": admin_inbounds,
+            "panels": admin.panels,
+            "inbounds": admin.inbounds,
         }
     return result
 
@@ -200,6 +200,36 @@ async def handle_owner_input(event) -> bool:
     if state == "op_esc":
         from .settings import _handle_simple_caption_input
         return await _handle_simple_caption_input(event, uid, s)
+    if state == "op_pl_name":
+        from .plans import _handle_pl_name
+        return await _handle_pl_name(event, uid, s)
+    if state == "op_pl_traffic":
+        from .plans import _handle_pl_traffic
+        return await _handle_pl_traffic(event, uid, s)
+    if state == "op_pl_days":
+        from .plans import _handle_pl_days
+        return await _handle_pl_days(event, uid, s)
+    if state == "op_ple_name":
+        from .plans import _handle_ple_name
+        return await _handle_ple_name(event, uid, s)
+    if state == "op_ple_traffic":
+        from .plans import _handle_ple_traffic
+        return await _handle_ple_traffic(event, uid, s)
+    if state == "op_ple_days":
+        from .plans import _handle_ple_days
+        return await _handle_ple_days(event, uid, s)
+    if state == "op_ta_prefix":
+        from .test_account import _handle_ta_prefix
+        return await _handle_ta_prefix(event, uid, s)
+    if state == "op_ta_postfix":
+        from .test_account import _handle_ta_postfix
+        return await _handle_ta_postfix(event, uid, s)
+    if state == "op_ta_traffic":
+        from .test_account import _handle_ta_traffic
+        return await _handle_ta_traffic(event, uid, s)
+    if state == "op_ta_days":
+        from .test_account import _handle_ta_days
+        return await _handle_ta_days(event, uid, s)
     if state == "op_rl_count_custom":
         from .settings import _handle_rl_count_custom
         return await _handle_rl_count_custom(event, uid, s)
@@ -255,17 +285,17 @@ def register(bot):
         if total_pages > 1:
             lines.append(t("op_users_page", uid, page=page + 1, total=total_pages))
         lines.append("")
-        for user_id, first, last, username, phone, bio, first_seen in page_profiles:
-            name = f"{first} {last}".strip() or "—"
+        for user_id, prof, first_seen in page_profiles:
+            name = f"{prof.first_name} {prof.last_name}".strip() or "—"
             parts = [f"👤 **{name}**"]
             id_line = f"🆔 `{user_id}`"
-            if username:
-                id_line += f" · @{username}"
+            if prof.username:
+                id_line += f" · @{prof.username}"
             parts.append(id_line)
-            if phone:
-                parts.append(f"📱 `{phone}`")
-            if bio:
-                truncated = (bio[:80] + "…") if len(bio) > 80 else bio
+            if prof.phone:
+                parts.append(f"📱 `{prof.phone}`")
+            if prof.bio:
+                truncated = (prof.bio[:80] + "…") if len(prof.bio) > 80 else prof.bio
                 parts.append(f"📝 {truncated}")
             if first_seen and first_seen > 0:
                 from datetime import datetime, timezone

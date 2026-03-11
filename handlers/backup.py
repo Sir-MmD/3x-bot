@@ -96,6 +96,7 @@ async def handle_owner_restore(event) -> bool:
     _db_mod._admins_cache = None
     _db_mod._panels_cache = None
     _db_mod._settings_cache = None
+    _db_mod._plans_cache = None
     _db_mod._lang_cache.clear()
 
     # Reload panels

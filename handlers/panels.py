@@ -55,10 +55,10 @@ async def _show_panel_detail(event, uid: int, name: str):
 
     # Effective values (pending overrides current)
     eff_name = edits.get("name", name) if has_edits else name
-    eff_url = edits.get("url", pd["url"]) if has_edits else pd["url"]
-    eff_user = edits.get("user", pd["username"]) if has_edits else pd["username"]
-    eff_proxy = edits.get("proxy", pd.get("proxy", "")) if has_edits else pd.get("proxy", "")
-    eff_sub = edits.get("sub", pd.get("sub_url", "")) if has_edits else pd.get("sub_url", "")
+    eff_url = edits.get("url", pd.url) if has_edits else pd.url
+    eff_user = edits.get("user", pd.username) if has_edits else pd.username
+    eff_proxy = edits.get("proxy", pd.proxy) if has_edits else pd.proxy
+    eff_sub = edits.get("sub", pd.sub_url) if has_edits else pd.sub_url
 
     lines = [t("op_panel_detail_title", uid)]
     if has_edits:
@@ -560,10 +560,10 @@ def register(bot):
         new_name = edits.get("name", name)
 
         # Effective connectivity values
-        eff_url = edits.get("url", pd["url"])
-        eff_user = edits.get("user", pd["username"])
-        eff_pass = edits.get("pass", pd["password"])
-        eff_proxy = edits.get("proxy", pd.get("proxy", ""))
+        eff_url = edits.get("url", pd.url)
+        eff_user = edits.get("user", pd.username)
+        eff_pass = edits.get("pass", pd.password)
+        eff_proxy = edits.get("proxy", pd.proxy)
 
         # Test connection if any connectivity field changed
         conn_changed = any(k in edits for k in ("url", "user", "pass", "proxy"))
@@ -612,9 +612,8 @@ def register(bot):
         # 4. Re-register from DB
         pd_new = get_db_panel(target)
         if pd_new:
-            register_panel(pd_new["name"], pd_new["url"], pd_new["username"],
-                           pd_new["password"], pd_new.get("proxy", ""),
-                           pd_new.get("sub_url", ""))
+            register_panel(pd_new.name, pd_new.url, pd_new.username,
+                           pd_new.password, pd_new.proxy, pd_new.sub_url)
 
         log_activity(uid, "edit_panel", json.dumps({"name": target, "fields": list(edits.keys())}))
         clear(uid)

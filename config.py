@@ -120,14 +120,15 @@ def is_owner(uid: int) -> bool:
     if uid == owner_id:
         return True
     from db import get_db_admins
-    return get_db_admins().get(uid, (set(), False, {"*"}, {}))[1]
+    admin = get_db_admins().get(uid)
+    return admin is not None and admin.is_owner
 
 
 def _count_owners() -> int:
     from db import get_db_admins
     count = 1  # config owner always counts
-    for _uid, (_perms, _is_owner, _panels, _inbounds) in get_db_admins().items():
-        if _is_owner and _uid != owner_id:
+    for _uid, admin in get_db_admins().items():
+        if admin.is_owner and _uid != owner_id:
             count += 1
     return count
 
@@ -136,15 +137,13 @@ def user_perms(uid: int) -> set[str]:
     """Return resolved permission set for a user."""
     if is_owner(uid):
         return ALL_PERMS | {"owner"}
-    from db import get_db_admins, get_setting
+    from db import get_db_admins, get_setting, _parse_json_set
     db_admins = get_db_admins()
     if uid in db_admins:
-        p = db_admins[uid][0]
+        p = db_admins[uid].perms
         return ALL_PERMS if "*" in p else p
     if get_setting("public_mode") == "1":
-        pp = get_setting("public_permissions")
-        perms = set(pp.split(",")) if pp else set()
-        perms.discard("")
+        perms = _parse_json_set(get_setting("public_permissions"))
         return ALL_PERMS if "*" in perms else perms
     return set()
 
@@ -164,15 +163,13 @@ def user_panels(uid: int) -> set[str] | None:
     """Return the set of panel names a user may access, or None for 'all'."""
     if is_owner(uid):
         return None  # owners see everything
-    from db import get_db_admins, get_setting
+    from db import get_db_admins, get_setting, _parse_json_set
     db_admins = get_db_admins()
     if uid in db_admins:
-        ap = db_admins[uid][2]
+        ap = db_admins[uid].panels
         return None if "*" in ap else ap
     if get_setting("public_mode") == "1":
-        pp = get_setting("public_panels", "*")
-        pset = set(pp.split(",")) if pp else {"*"}
-        pset.discard("")
+        pset = _parse_json_set(get_setting("public_panels", '["*"]')) or {"*"}
         return None if "*" in pset else pset
     return set()
 
@@ -184,8 +181,7 @@ def user_inbounds(uid: int, panel_name: str) -> set[int] | None:
     from db import get_db_admins, get_setting, _parse_inbounds_json
     db_admins = get_db_admins()
     if uid in db_admins:
-        ib_map = db_admins[uid][3]
-        return ib_map.get(panel_name)  # None = all (panel not listed)
+        return db_admins[uid].inbounds.get(panel_name)  # None = all (panel not listed)
     if get_setting("public_mode") == "1":
         raw = get_setting("public_inbounds", "{}")
         ib_map = _parse_inbounds_json(raw)
@@ -240,12 +236,9 @@ def load_db_panels():
     """Load DB panels into runtime (called at startup)."""
     from db import get_db_panels
     for p in get_db_panels():
-        if p["name"] in panels:
+        if p.name in panels:
             continue
-        register_panel(
-            p["name"], p["url"], p["username"], p["password"],
-            p.get("proxy", ""), p.get("sub_url", ""),
-        )
+        register_panel(p.name, p.url, p.username, p.password, p.proxy, p.sub_url)
 
 
 def reload_panels():
@@ -256,16 +249,12 @@ def reload_panels():
     server_addrs.clear()
     sub_urls.clear()
     for p in get_db_panels():
-        name = p["name"]
-        if name in old:
-            panels[name] = old[name]
-            server_addrs[name] = urlparse(p["url"]).hostname
-            sub_urls[name] = p.get("sub_url", "").rstrip("/") or None
+        if p.name in old:
+            panels[p.name] = old[p.name]
+            server_addrs[p.name] = urlparse(p.url).hostname
+            sub_urls[p.name] = p.sub_url.rstrip("/") or None
         else:
-            register_panel(
-                name, p["url"], p["username"], p["password"],
-                p.get("proxy", ""), p.get("sub_url", ""),
-            )
+            register_panel(p.name, p.url, p.username, p.password, p.proxy, p.sub_url)
 
 
 # ── Bot ──────────────────────────────────────────────────────────────────────
@@ -316,8 +305,8 @@ def _get_owner_uids() -> list[int]:
     """Return all owner user IDs (config owner + DB owners)."""
     from db import get_db_admins
     uids = [owner_id]
-    for uid, (_perms, _is_owner, _panels, _ib) in get_db_admins().items():
-        if _is_owner and uid != owner_id:
+    for uid, admin in get_db_admins().items():
+        if admin.is_owner and uid != owner_id:
             uids.append(uid)
     return uids
 

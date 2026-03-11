@@ -78,32 +78,32 @@ async def _show_admin_detail(event, uid: int, target_uid: int):
         await _show_admin_list(event, uid)
         return
 
-    raw, db_is_owner, admin_panels, admin_inbounds = db_admins[target_uid]
+    admin = db_admins[target_uid]
     prof = get_user_profile(target_uid)
     lines = [
         t("op_admin_detail_title", uid),
         t("op_admin_uid", uid, id=target_uid),
     ]
     if prof:
-        name = prof["first_name"]
-        if prof["last_name"]:
-            name += " " + prof["last_name"]
+        name = prof.first_name
+        if prof.last_name:
+            name += " " + prof.last_name
         if name.strip():
             lines.append(t("op_admin_name", uid, name=name))
-        if prof["username"]:
-            lines.append(t("op_admin_username", uid, username=prof["username"]))
+        if prof.username:
+            lines.append(t("op_admin_username", uid, username=prof.username))
     lines.extend([
-        t("op_admin_is_owner", uid) if db_is_owner else t("op_admin_is_admin", uid),
-        t("op_admin_perms", uid, perms=_format_perms(raw)),
-        t("op_admin_panels", uid, panels=_format_panels(admin_panels)),
-        t("op_admin_inbounds", uid, inbounds=_format_inbounds(admin_inbounds)),
+        t("op_admin_is_owner", uid) if admin.is_owner else t("op_admin_is_admin", uid),
+        t("op_admin_perms", uid, perms=_format_perms(admin.perms)),
+        t("op_admin_panels", uid, panels=_format_panels(admin.panels)),
+        t("op_admin_inbounds", uid, inbounds=_format_inbounds(admin.inbounds)),
     ])
     text = "\n".join(lines)
 
-    has_star = "*" in raw
+    has_star = "*" in admin.perms
     btns = []
     for p in _PERM_LIST:
-        on = has_star or p in raw
+        on = has_star or p in admin.perms
         label = t("op_perm_on", uid, perm=p) if on else t("op_perm_off", uid, perm=p)
         btns.append([Button.inline(label, f"op:tp:{target_uid}:{p}".encode())])
     btns.append([Button.inline(t("btn_edit_panels", uid), f"op:ep:{target_uid}".encode())])
@@ -190,11 +190,11 @@ async def _show_admin_inbound_panel_list(event, uid: int, target_uid: int):
     if target_uid not in db_admins:
         await _show_admin_list(event, uid)
         return
-    _, _, admin_panels, admin_inbounds = db_admins[target_uid]
-    panel_names = sorted(panels) if "*" in admin_panels else sorted(admin_panels & set(panels))
+    admin = db_admins[target_uid]
+    panel_names = sorted(panels) if "*" in admin.panels else sorted(admin.panels & set(panels))
     btns = []
     for name in panel_names:
-        ib_ids = admin_inbounds.get(name)
+        ib_ids = admin.inbounds.get(name)
         suffix = " [restricted]" if ib_ids is not None else ""
         btns.append([Button.inline(f"🖥 {name}{suffix}", f"op:eip:{target_uid}:{name}".encode())])
     btns.append([Button.inline(t("btn_back", uid), f"op:ad:{target_uid}".encode()),
@@ -284,8 +284,8 @@ def register(bot):
         db_admins = get_db_admins()
         if target_uid not in db_admins:
             return
-        current_perms, _, _panels, _ib = db_admins[target_uid]
-        new_perms = set(current_perms)
+        admin = db_admins[target_uid]
+        new_perms = set(admin.perms)
         if "*" in new_perms:
             new_perms = set(ALL_PERMS)
         if perm in new_perms:
@@ -309,11 +309,11 @@ def register(bot):
         db_admins = get_db_admins()
         if target_uid not in db_admins:
             return
-        _, current_owner, _panels, _ib = db_admins[target_uid]
-        if current_owner and _count_owners() <= 1:
+        admin = db_admins[target_uid]
+        if admin.is_owner and _count_owners() <= 1:
             await answer(event, t("op_cannot_demote_last_owner", uid), alert=True)
             return
-        new_owner = not current_owner
+        new_owner = not admin.is_owner
         update_db_admin_owner(target_uid, new_owner)
         log_activity(uid, "toggle_owner", json.dumps({"target": target_uid, "is_owner": new_owner}))
         await _show_admin_detail(event, uid, target_uid)
@@ -361,9 +361,9 @@ def register(bot):
         db_admins = get_db_admins()
         if target_uid not in db_admins:
             return
-        _, _, current_panels, _ = db_admins[target_uid]
+        admin = db_admins[target_uid]
         s = st(uid)
-        s["op_ep_panels"] = set(current_panels)
+        s["op_ep_panels"] = set(admin.panels)
         await _show_admin_panel_picker(event, uid, target_uid, s["op_ep_panels"])
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:epa:(\d+):(.+)$"))
@@ -419,9 +419,9 @@ def register(bot):
         db_admins = get_db_admins()
         if target_uid not in db_admins:
             return
-        _, _, _, admin_inbounds = db_admins[target_uid]
+        admin = db_admins[target_uid]
         s = st(uid)
-        existing = admin_inbounds.get(panel_name)
+        existing = admin.inbounds.get(panel_name)
         if existing is None:
             # Currently all — start with select-all mode
             s["op_ei_all"] = True
@@ -487,8 +487,8 @@ def register(bot):
         db_admins = get_db_admins()
         if target_uid not in db_admins:
             return
-        _, _, _, current_inbounds = db_admins[target_uid]
-        new_inbounds = dict(current_inbounds)
+        admin = db_admins[target_uid]
+        new_inbounds = dict(admin.inbounds)
         if s.get("op_ei_all"):
             # All selected = no restriction for this panel
             new_inbounds.pop(panel_name, None)

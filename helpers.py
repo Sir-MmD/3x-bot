@@ -212,9 +212,9 @@ def get_display_name(uid: int) -> str:
     prof = get_user_profile(uid)
     if not prof:
         return str(uid)
-    name = prof["first_name"]
-    if prof["last_name"]:
-        name += " " + prof["last_name"]
+    name = prof.first_name
+    if prof.last_name:
+        name += " " + prof.last_name
     return name if name.strip() else str(uid)
 
 

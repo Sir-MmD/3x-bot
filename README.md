@@ -18,9 +18,13 @@ Telegram bot for managing [3x-ui](https://github.com/MHSanaei/3x-ui) panel accou
 - **Force join** — require users to join channels (public or private) with interactive channel manager
 - **Multi-language** — English, Persian, Russian with per-user selection and RTL PDF support
 - **Info hints** — contextual ℹ️ help text on every interactive step
-- **Activity logging** — audit trail of all user actions (search, create, modify, remove, bulk ops, admin changes) with timestamps
+- **Account plans** — define reusable plan templates (name, traffic, days, start-after-use) for quick single/bulk account creation
+- **Test account** — one-click test account creation with configurable naming, traffic, and duration presets
+- **Re-create** — after creating accounts, re-create with the same parameters and a new email/batch
+- **Activity logging** — audit trail of all user actions with structured columns (panel, inbound, email, lang) for analytics
 - **Admin display names** — admin list shows Telegram names alongside user IDs
-- **Backup & Restore** — download/upload config + database as ZIP
+- **Backup & Restore** — Bot DB (config + database as ZIP) and Panel DB (per-panel x-ui.db backup/restore) with auto-backup scheduling
+- **Manage panel** — edit panel settings, stop/restart Xray from the bot UI
 - **Proxy support** — HTTP/SOCKS proxy for both Telegram and panel connections
 
 ## Install
@@ -68,6 +72,8 @@ Everything else (admins, panels, public mode, force-join, permissions) is manage
 > **v1.0.0**: UI now uses "Account ID" instead of "email". TXT file uploads supported in bulk create and bulk ops.
 >
 > **v1.1.0**: arm64 builds, `--version` flag, translated duration units, improved install script with version detection.
+>
+> **v2.0.0**: Database refactored with versioned migrations, dataclasses, JSON serialization, and normalized tables for plans and test accounts. Existing databases are automatically migrated — no manual steps needed. Handler modules split for maintainability (settings, plans, test account, bulk create).
 
 ## Permissions
 
@@ -83,6 +89,7 @@ Each admin gets a list of permissions. Use `*` to grant all.
 | `remove` | Remove accounts |
 | `bulk` | Bulk operations, reset traffic, delete depleted |
 | `pdf` | PDF export |
+| `manage_panel` | Edit panel settings, stop/restart Xray |
 
 Beyond permissions, you can restrict **which panels** and **which inbounds** each admin can see. The same restrictions are available for public mode users.
 
@@ -169,5 +176,5 @@ All bot data is stored in `~/3x-bot/`:
 |------|----------|
 | `3x-bot` | Bot binary |
 | `config.toml` | API credentials, bot token, owner ID |
-| `3x-bot.db` | SQLite database (admins, panels, settings, user preferences) |
+| `3x-bot.db` | SQLite database (admins, panels, settings, plans, user profiles, activity log) |
 | `bot.session` | Telethon session file |

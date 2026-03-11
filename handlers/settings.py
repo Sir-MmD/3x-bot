@@ -7,6 +7,7 @@ from telethon.tl.functions.messages import CheckChatInviteRequest
 from config import st, clear, ALL_PERMS, panels, get_panel, bot
 from db import (
     get_setting, set_setting, _parse_inbounds_json, _serialize_inbounds,
+    _parse_json_set, _serialize_set, get_plans, get_test_account,
     log_activity,
 )
 from helpers import auth, reply, answer
@@ -23,18 +24,16 @@ _INVITE_RE = re.compile(r"(?:https?://)?t\.me/(?:\+|joinchat/)(.+)")
 
 async def _show_settings(event, uid: int):
     pub = get_setting("public_mode") == "1"
-    pub_perms = get_setting("public_permissions")
-    pub_panels_raw = get_setting("public_panels", "*")
+    pub_perms_raw = get_setting("public_permissions")
+    pub_panels_raw = get_setting("public_panels", '["*"]')
     pub_inbounds_raw = get_setting("public_inbounds", "{}")
     fj = get_setting("force_join")
 
     lines = [t("op_settings_title", uid)]
     lines.append(t("op_public_mode_on", uid) if pub else t("op_public_mode_off", uid))
-    pp = set(pub_perms.split(",")) if pub_perms else set()
-    pp.discard("")
+    pp = _parse_json_set(pub_perms_raw)
     lines.append(t("op_public_perms_label", uid, perms=_format_perms(pp)))
-    pub_pset = set(pub_panels_raw.split(",")) if pub_panels_raw else {"*"}
-    pub_pset.discard("")
+    pub_pset = _parse_json_set(pub_panels_raw) or {"*"}
     lines.append(t("op_public_panels_label", uid, panels=_format_panels(pub_pset)))
     pub_ib = _parse_inbounds_json(pub_inbounds_raw)
     lines.append(t("op_public_inbounds_label", uid, inbounds=_format_inbounds(pub_ib)))
@@ -55,6 +54,23 @@ async def _show_settings(event, uid: int):
     else:
         lines.append(t("op_simple_caption_none", uid))
 
+    plan_count = len(get_plans())
+    if plan_count:
+        lines.append(t("op_plans_count", uid, count=plan_count))
+    else:
+        lines.append(t("op_plans_none", uid))
+
+    ta = get_test_account()
+    if ta:
+        ta_days = ta.get("days", 0)
+        ta_traffic = ta.get("traffic", 0)
+        if ta.get("sau"):
+            lines.append(t("op_test_account_label_sau", uid, days=ta_days, traffic=ta_traffic))
+        else:
+            lines.append(t("op_test_account_label", uid, days=ta_days, traffic=ta_traffic))
+    else:
+        lines.append(t("op_test_account_none", uid))
+
     btns = [
         [Button.inline(t("btn_toggle_public", uid), b"op:tpm")],
         [Button.inline(t("btn_edit_public_perms", uid), b"op:epp")],
@@ -64,6 +80,8 @@ async def _show_settings(event, uid: int):
     ]
     btns.append([Button.inline(t("btn_edit_rate_limit", uid), b"op:erl")])
     btns.append([Button.inline(t("btn_edit_simple_caption", uid), b"op:esc")])
+    btns.append([Button.inline(t("btn_edit_plans", uid), b"op:pl")])
+    btns.append([Button.inline(t("btn_edit_test_account", uid), b"op:eta")])
     btns.append([Button.inline(t("btn_back", uid), b"op"),
                  Button.inline(t("btn_main_menu", uid), b"m")])
     await reply(event, "\n".join(lines), buttons=btns)
@@ -117,9 +135,8 @@ async def _show_public_panel_picker(event, uid: int):
 
 async def _show_public_inbound_panel_list(event, uid: int):
     """Show panels for public inbound editing."""
-    pub_panels_raw = get_setting("public_panels", "*")
-    pub_pset = set(pub_panels_raw.split(",")) if pub_panels_raw else {"*"}
-    pub_pset.discard("")
+    pub_panels_raw = get_setting("public_panels", '["*"]')
+    pub_pset = _parse_json_set(pub_panels_raw) or {"*"}
     pub_inbounds = _parse_inbounds_json(get_setting("public_inbounds", "{}"))
     panel_names = sorted(panels) if "*" in pub_pset else sorted(pub_pset & set(panels))
     btns = []
@@ -327,6 +344,9 @@ async def _handle_rl_window_custom(event, uid, s):
 # ── Register ────────────────────────────────────────────────────────────────
 
 def register(bot):
+    from . import plans, test_account
+    plans.register(bot)
+    test_account.register(bot)
 
     @bot.on(events.CallbackQuery(data=b"op:set"))
     @auth
@@ -354,8 +374,7 @@ def register(bot):
         uid = event.sender_id
         s = st(uid)
         pp = get_setting("public_permissions")
-        current = set(pp.split(",")) if pp else set()
-        current.discard("")
+        current = _parse_json_set(pp)
         if current >= ALL_PERMS:
             current = {"*"}
         s["op_pp_perms"] = current
@@ -380,12 +399,8 @@ def register(bot):
         uid = event.sender_id
         s = st(uid)
         selected = s.get("op_pp_perms", set())
-        if "*" in selected:
-            val = "*"
-        else:
-            val = ",".join(sorted(selected))
-        set_setting("public_permissions", val)
-        log_activity(uid, "edit_public_perms", json.dumps({"perms": val}))
+        set_setting("public_permissions", _serialize_set(selected))
+        log_activity(uid, "edit_public_perms", json.dumps({"perms": sorted(selected)}))
         clear(uid)
         await reply(event, t("op_public_perms_saved", uid),
                     buttons=_back_btn(uid, b"op:set"))
@@ -398,9 +413,8 @@ def register(bot):
     async def cb_edit_public_panels(event):
         uid = event.sender_id
         s = st(uid)
-        pp = get_setting("public_panels", "*")
-        current = set(pp.split(",")) if pp else {"*"}
-        current.discard("")
+        pp = get_setting("public_panels", '["*"]')
+        current = _parse_json_set(pp) or {"*"}
         all_names = set(panels)
         if all_names and current >= all_names:
             current = {"*"}
@@ -428,12 +442,8 @@ def register(bot):
         selected = s.get("op_ppp_panels", {"*"})
         if not selected:
             selected = {"*"}
-        if "*" in selected:
-            val = "*"
-        else:
-            val = ",".join(sorted(selected))
-        set_setting("public_panels", val)
-        log_activity(uid, "edit_public_panels", json.dumps({"panels": val}))
+        set_setting("public_panels", _serialize_set(selected))
+        log_activity(uid, "edit_public_panels", json.dumps({"panels": sorted(selected)}))
         clear(uid)
         await reply(event, t("op_public_panels_saved", uid),
                     buttons=_back_btn(uid, b"op:set"))
@@ -600,6 +610,8 @@ def register(bot):
         if current:
             text += "\n\n" + t("op_simple_caption_current", uid, caption=current)
         await reply(event, text, buttons=_back_btn(uid, b"op:set"))
+
+    # ── Rate Limit ─────────────────────────────────────────────────────
 
     @bot.on(events.CallbackQuery(data=b"op:erl"))
     @auth

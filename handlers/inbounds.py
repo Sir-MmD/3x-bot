@@ -5,7 +5,7 @@ import time
 from telethon import events, Button
 
 from config import get_panel, clear, has_perm, is_owner, user_perms, visible_panels, visible_inbounds, user_inbounds
-from db import log_activity
+from db import get_setting, get_test_account, log_activity
 from helpers import auth, reply, answer, format_client_line, format_bytes
 from i18n import t
 from panel import SUPPORTED_PROTOCOLS
@@ -234,10 +234,13 @@ def register(bot):
 
         # Action buttons
         if has_perm(uid, "create"):
-            btns.append([
+            create_row = [
                 Button.inline(t("btn_add_client", uid), f"ca:{panel_name}:{iid}".encode()),
                 Button.inline(t("btn_add_bulk", uid), f"bk:{panel_name}:{iid}".encode()),
-            ])
+            ]
+            btns.append(create_row)
+            if get_test_account():
+                btns.append([Button.inline(t("btn_test_account", uid), f"ta:{panel_name}:{iid}".encode())])
         if has_perm(uid, "bulk"):
             btns.append([
                 Button.inline(t("btn_reset_traffic", uid), f"ibrt:{panel_name}:{iid}".encode()),
