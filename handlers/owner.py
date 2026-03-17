@@ -1,12 +1,13 @@
+import json
 import re
 
 from telethon import events, Button
 
 from config import (
     st, clear, is_owner, ALL_PERMS, owner_id, panels,
-    VERSION,
+    VERSION, bot,
 )
-from db import get_db_admins, get_setting, get_all_user_profiles
+from db import get_db_admins, get_setting, get_all_user_profiles, log_activity
 from helpers import auth, reply
 from i18n import t
 
@@ -155,12 +156,63 @@ async def _show_owner_panel(event, uid: int):
         [Button.inline(t("btn_manage_panels", uid), b"op:panels")],
         [Button.inline(t("btn_settings", uid), b"op:set")],
         [Button.inline(t("btn_list_users", uid), b"op:ul")],
+        [Button.inline(t("btn_msg_users", uid), b"op:mu"),
+         Button.inline(t("btn_msg_admins", uid), b"op:ma")],
         [Button.inline(t("btn_backup_restore", uid), b"op:br")],
         [Button.inline(t("btn_restart", uid), b"op:restart")],
         [Button.inline(t("btn_back", uid), b"m")],
     ]
     title = t("op_title", uid) + "\n" + t("op_version", uid, version=VERSION)
     await reply(event, title, buttons=btns)
+
+
+# ── Message Broadcast ─────────────────────────────────────────────────────
+
+async def _handle_msg_users(event, uid, s):
+    """Broadcast message to all bot users."""
+    s["state"] = None
+    text = event.message.raw_text.strip()
+    if not text:
+        s["state"] = "op_mu"
+        return True
+    profiles = get_all_user_profiles()
+    sent = 0
+    for user_id, _prof, _fs in profiles:
+        try:
+            await bot.send_message(user_id, text)
+            sent += 1
+        except Exception:
+            pass
+    log_activity(uid, "msg_users", json.dumps({"sent": sent, "total": len(profiles)}))
+    clear(uid)
+    await reply(event, t("op_msg_sent", uid, sent=sent, total=len(profiles)),
+                buttons=_back_btn(uid, b"op"))
+    return True
+
+
+async def _handle_msg_admins(event, uid, s):
+    """Broadcast message to all admins."""
+    s["state"] = None
+    text = event.message.raw_text.strip()
+    if not text:
+        s["state"] = "op_ma"
+        return True
+    targets = set()
+    targets.add(owner_id)
+    for aid in get_db_admins():
+        targets.add(aid)
+    sent = 0
+    for target_uid in targets:
+        try:
+            await bot.send_message(target_uid, text)
+            sent += 1
+        except Exception:
+            pass
+    log_activity(uid, "msg_admins", json.dumps({"sent": sent, "total": len(targets)}))
+    clear(uid)
+    await reply(event, t("op_msg_sent", uid, sent=sent, total=len(targets)),
+                buttons=_back_btn(uid, b"op"))
+    return True
 
 
 # ── Input Dispatcher ────────────────────────────────────────────────────────
@@ -191,6 +243,9 @@ async def handle_owner_input(event) -> bool:
     if state == "op_ap_sub":
         from .panels import _handle_add_panel_sub
         return await _handle_add_panel_sub(event, uid, s)
+    if state == "op_ap_2fa":
+        from .panels import _handle_add_panel_2fa
+        return await _handle_add_panel_2fa(event, uid, s)
     if state == "op_pe":
         from .panels import _handle_panel_edit
         return await _handle_panel_edit(event, uid, s)
@@ -218,18 +273,10 @@ async def handle_owner_input(event) -> bool:
     if state == "op_ple_days":
         from .plans import _handle_ple_days
         return await _handle_ple_days(event, uid, s)
-    if state == "op_ta_prefix":
-        from .test_account import _handle_ta_prefix
-        return await _handle_ta_prefix(event, uid, s)
-    if state == "op_ta_postfix":
-        from .test_account import _handle_ta_postfix
-        return await _handle_ta_postfix(event, uid, s)
-    if state == "op_ta_traffic":
-        from .test_account import _handle_ta_traffic
-        return await _handle_ta_traffic(event, uid, s)
-    if state == "op_ta_days":
-        from .test_account import _handle_ta_days
-        return await _handle_ta_days(event, uid, s)
+    if state == "op_mu":
+        return await _handle_msg_users(event, uid, s)
+    if state == "op_ma":
+        return await _handle_msg_admins(event, uid, s)
     if state == "op_rl_count_custom":
         from .settings import _handle_rl_count_custom
         return await _handle_rl_count_custom(event, uid, s)
@@ -262,6 +309,26 @@ def register(bot):
         uid = event.sender_id
         clear(uid)
         await _show_owner_panel(event, uid)
+
+    @bot.on(events.CallbackQuery(data=b"op:mu"))
+    @auth
+    @_require_owner
+    async def cb_msg_users(event):
+        uid = event.sender_id
+        s = st(uid)
+        s["state"] = "op_mu"
+        await reply(event, t("op_msg_users_prompt", uid),
+                    buttons=_back_btn(uid, b"op"))
+
+    @bot.on(events.CallbackQuery(data=b"op:ma"))
+    @auth
+    @_require_owner
+    async def cb_msg_admins(event):
+        uid = event.sender_id
+        s = st(uid)
+        s["state"] = "op_ma"
+        await reply(event, t("op_msg_admins_prompt", uid),
+                    buttons=_back_btn(uid, b"op"))
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:ul(?::(\d+))?$"))
     @auth

@@ -224,9 +224,10 @@ def get_panel(name: str) -> PanelClient:
 
 
 def register_panel(name: str, url: str, username: str, password: str,
-                   proxy: str = "", sub_url: str = ""):
+                   proxy: str = "", sub_url: str = "", secret_token: str = ""):
     """Register a panel at runtime."""
-    panels[name] = PanelClient(url, username, password, name=name, proxy=proxy)
+    panels[name] = PanelClient(url, username, password, name=name, proxy=proxy,
+                               secret_token=secret_token)
     server_addrs[name] = urlparse(url).hostname
     sub_urls[name] = sub_url.rstrip("/") or None
 
@@ -245,7 +246,7 @@ def load_db_panels():
     for p in get_db_panels():
         if p.name in panels:
             continue
-        register_panel(p.name, p.url, p.username, p.password, p.proxy, p.sub_url)
+        register_panel(p.name, p.url, p.username, p.password, p.proxy, p.sub_url, p.secret_token)
 
 
 def reload_panels():
@@ -261,7 +262,7 @@ def reload_panels():
             server_addrs[p.name] = urlparse(p.url).hostname
             sub_urls[p.name] = p.sub_url.rstrip("/") or None
         else:
-            register_panel(p.name, p.url, p.username, p.password, p.proxy, p.sub_url)
+            register_panel(p.name, p.url, p.username, p.password, p.proxy, p.sub_url, p.secret_token)
 
 
 # ── Bot ──────────────────────────────────────────────────────────────────────

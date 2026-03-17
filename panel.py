@@ -1,22 +1,37 @@
 import asyncio
+import hashlib
+import hmac
 import json
+import struct
 import time
-from base64 import b64encode
+from base64 import b32decode, b64encode
 from urllib.parse import quote
 
 import httpx
 
 SUPPORTED_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks"}
 
+
+def _generate_totp(secret: str, period: int = 30, digits: int = 6) -> str:
+    """Generate a TOTP code from a base32-encoded secret."""
+    key = b32decode(secret.upper() + "=" * (-len(secret) % 8))
+    counter = struct.pack(">Q", int(time.time()) // period)
+    mac = hmac.new(key, counter, hashlib.sha1).digest()
+    offset = mac[-1] & 0x0F
+    code = struct.unpack(">I", mac[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(code % (10 ** digits)).zfill(digits)
+
 _CACHE_TTL = 30  # seconds
 
 
 class PanelClient:
-    def __init__(self, url: str, username: str, password: str, name: str = "", proxy: str = ""):
+    def __init__(self, url: str, username: str, password: str, name: str = "",
+                 proxy: str = "", secret_token: str = ""):
         self.url = url.rstrip("/")
         self.username = username
         self.password = password
         self.name = name
+        self.secret_token = secret_token
         # Normalize socks:// to socks5:// for httpx
         if proxy and proxy.lower().startswith("socks://"):
             proxy = "socks5://" + proxy[8:]
@@ -52,9 +67,12 @@ class PanelClient:
 
     async def login(self):
         try:
+            payload = {"username": self.username, "password": self.password}
+            if self.secret_token:
+                payload["loginSecret"] = _generate_totp(self.secret_token)
             resp = await self._client.post(
                 self.url + "/login",
-                json={"username": self.username, "password": self.password},
+                json=payload,
             )
         except httpx.TransportError as e:
             self._logged_in = False

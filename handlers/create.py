@@ -3,11 +3,10 @@ import time
 
 from telethon import events, Button
 
-from config import get_panel, st, clear, user_inbounds, visible_panels
-from db import get_setting, get_plans, get_test_account, log_activity
+from config import get_panel, st, clear, user_inbounds
+from db import get_setting, get_plans, log_activity
 from helpers import (
-    rand_email, generate_bulk_emails,
-    auth, reply, answer, build_client_dict,
+    rand_email, auth, reply, answer, build_client_dict,
 )
 from i18n import t
 from panel import SUPPORTED_PROTOCOLS
@@ -18,7 +17,7 @@ def _recreate_label(uid: int, days: int, traffic_gb: float, sau: bool, count: in
     unlim = t("unlimited", uid)
     d_part = f"{days}d" if days > 0 else unlim
     t_part = f"{traffic_gb:.0f}GB" if traffic_gb > 0 else unlim
-    sau_part = "\U0001f552" if sau else ""
+    sau_part = "-\U0001f552" if sau else ""
     prefix = f"{count}x-" if count > 0 else ""
     return f"\U0001f501 Re-Create ({prefix}{d_part}-{t_part}{sau_part})"
 
@@ -126,14 +125,14 @@ async def handle_create_input(event):
     if state == "cr_email":
         s["state"] = None
         email = event.text.strip()
-        # Check for duplicate email across all panels
+        # Check for duplicate email on the target panel only
         dup_panel = None
         try:
-            for pname, pc in visible_panels(uid).items():
-                c, _ib, _tr = await pc.find_client_by_email(email)
-                if c is not None:
-                    dup_panel = pname
-                    break
+            target = s.get("cr_pid")
+            pc = get_panel(target)
+            c, _ib, _tr = await pc.find_client_by_email(email)
+            if c is not None:
+                dup_panel = target
         except Exception:
             pass
         is_recreate = "traffic_gb" in s.get("cr", {})
@@ -317,37 +316,6 @@ def register(bot):
             buttons=[[Button.inline(t("btn_back", uid), f"ca:{s['cr_pid']}:{s['cr_iid']}".encode()),
                       Button.inline(t("btn_main_menu", uid), b"m")]],
         )
-
-    @bot.on(events.CallbackQuery(pattern=rb"^ta:(.+):(\d+)$"))
-    @auth("create")
-    async def cb_test_account(event):
-        """Create a test account with preset settings from test_account setting."""
-        uid = event.sender_id
-        panel_name = event.pattern_match.group(1).decode()
-        iid = int(event.pattern_match.group(2))
-        allowed = user_inbounds(uid, panel_name)
-        if allowed is not None and iid not in allowed:
-            return
-        if not await _check_protocol(event, uid, panel_name, iid):
-            return
-        ta = get_test_account()
-        if not ta:
-            return
-        method = ta.get("method", "r")
-        prefix = ta.get("prefix", "")
-        postfix = ta.get("postfix", "")
-        email = generate_bulk_emails(method, 1, prefix=prefix, postfix=postfix)[0]
-        s = st(uid)
-        s["cr_iid"] = iid
-        s["cr_pid"] = panel_name
-        s["cr"] = {
-            "email": email,
-            "traffic_gb": ta.get("traffic", 0),
-            "duration_days": ta.get("days", 0),
-            "start_after_use": ta.get("sau", False),
-        }
-        s["state"] = None
-        await _create_client(event, uid)
 
     @bot.on(events.CallbackQuery(pattern=rb"^sau:([yn])$"))
     @auth("create")

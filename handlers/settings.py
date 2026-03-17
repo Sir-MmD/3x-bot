@@ -7,7 +7,7 @@ from telethon.tl.functions.messages import CheckChatInviteRequest
 from config import st, clear, ALL_PERMS, panels, get_panel, bot
 from db import (
     get_setting, set_setting, _parse_inbounds_json, _serialize_inbounds,
-    _parse_json_set, _serialize_set, get_plans, get_test_account,
+    _parse_json_set, _serialize_set, get_plans,
     log_activity,
 )
 from helpers import auth, reply, answer
@@ -60,17 +60,6 @@ async def _show_settings(event, uid: int):
     else:
         lines.append(t("op_plans_none", uid))
 
-    ta = get_test_account()
-    if ta:
-        ta_days = ta.get("days", 0)
-        ta_traffic = ta.get("traffic", 0)
-        if ta.get("sau"):
-            lines.append(t("op_test_account_label_sau", uid, days=ta_days, traffic=ta_traffic))
-        else:
-            lines.append(t("op_test_account_label", uid, days=ta_days, traffic=ta_traffic))
-    else:
-        lines.append(t("op_test_account_none", uid))
-
     btns = [
         [Button.inline(t("btn_toggle_public", uid), b"op:tpm")],
         [Button.inline(t("btn_edit_public_perms", uid), b"op:epp")],
@@ -81,7 +70,6 @@ async def _show_settings(event, uid: int):
     btns.append([Button.inline(t("btn_edit_rate_limit", uid), b"op:erl")])
     btns.append([Button.inline(t("btn_edit_simple_caption", uid), b"op:esc")])
     btns.append([Button.inline(t("btn_edit_plans", uid), b"op:pl")])
-    btns.append([Button.inline(t("btn_edit_test_account", uid), b"op:eta")])
     btns.append([Button.inline(t("btn_back", uid), b"op"),
                  Button.inline(t("btn_main_menu", uid), b"m")])
     await reply(event, "\n".join(lines), buttons=btns)
@@ -344,9 +332,8 @@ async def _handle_rl_window_custom(event, uid, s):
 # ── Register ────────────────────────────────────────────────────────────────
 
 def register(bot):
-    from . import plans, test_account
+    from . import plans
     plans.register(bot)
-    test_account.register(bot)
 
     @bot.on(events.CallbackQuery(data=b"op:set"))
     @auth

@@ -28,8 +28,23 @@ def _sanitize(text: str) -> str:
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
+# ── Color palette ────────────────────────────────────────────────────────────
+
+_BG_HEADER = (30, 41, 59)       # dark slate
+_BG_CARD = (248, 250, 252)      # light gray
+_BORDER_CARD = (203, 213, 225)  # slate-300
+_TEXT_PRIMARY = (15, 23, 42)     # slate-900
+_TEXT_SECONDARY = (71, 85, 105)  # slate-500
+_TEXT_MUTED = (100, 116, 139)    # slate-400
+_ACCENT = (59, 130, 246)        # blue-500
+_GREEN = (34, 197, 94)          # green-500
+_ORANGE = (249, 115, 22)        # orange-500
+_PURPLE = (139, 92, 246)        # violet-500
+_TEAL = (20, 184, 166)          # teal-500
+
+
 class _PDF(FPDF):
-    """FPDF subclass that adds page numbers in the footer."""
+    """FPDF subclass with modern footer."""
 
     def __init__(self, uid: int = 0):
         super().__init__()
@@ -37,36 +52,36 @@ class _PDF(FPDF):
         self._use_unicode = False
 
     def footer(self):
-        self.set_y(-15)
+        self.set_y(-12)
+        self.set_draw_color(*_BORDER_CARD)
+        self.line(15, self.get_y() - 2, 195, self.get_y() - 2)
         if self._use_unicode:
             self.set_font("UniFont", "I" if not is_rtl(self._uid) else "", 8)
         else:
             self.set_font("Helvetica", "I", 8)
+        self.set_text_color(*_TEXT_MUTED)
         page_text = t("pdf_page", self._uid, page=self.page_no(), total="{nb}")
         if not self._use_unicode:
             page_text = _sanitize(page_text)
-        self.cell(0, 10, page_text, align="C")
+        self.cell(0, 8, page_text, align="C")
 
 
 def _setup_font(pdf: _PDF, uid: int):
     """Register a Unicode TTF font if needed for the user's language."""
     lang = get_user_lang(uid) or "en"
-    if lang == "en":
-        return  # Use built-in Helvetica for English
 
     if lang == "fa" and _VAZIRMATN.exists():
         font_path = str(_VAZIRMATN)
     elif _NOTOSANS.exists():
         font_path = str(_NOTOSANS)
     else:
-        return  # No font available, fall back to Helvetica
+        return
 
     pdf.add_font("UniFont", "", font_path, uni=True)
     pdf.add_font("UniFont", "B", font_path, uni=True)
     pdf.add_font("UniFont", "I", font_path, uni=True)
     pdf._use_unicode = True
 
-    # Enable RTL text shaping for Persian
     if lang in ("fa",) and _HAS_SHAPING:
         pdf.set_text_shaping(
             use_shaping_engine=True,
@@ -77,16 +92,16 @@ def _setup_font(pdf: _PDF, uid: int):
 
 
 def generate_account_pdf(accounts: list[dict], title: str, uid: int = 0) -> io.BytesIO:
-    """Generate a PDF with account details and QR codes.
+    """Generate a modern PDF with account details and QR codes.
 
     Each account dict: {email, proxy_link, qr_image (BytesIO|None),
-                        traffic, duration, sub_link}
+                        traffic, duration, sub_link, panel}
     Returns BytesIO with .name = "accounts.pdf".
     """
     pdf = _PDF(uid=uid)
     _setup_font(pdf, uid)
     pdf.alias_nb_pages()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=True, margin=18)
 
     use_uni = pdf._use_unicode
     tmp_files = []
@@ -100,74 +115,152 @@ def generate_account_pdf(accounts: list[dict], title: str, uid: int = 0) -> io.B
         else:
             pdf.set_font("Helvetica", style, size)
 
-    # Title page header on first page
-    pdf.add_page()
-    _set_font("B", 16)
-    pdf.cell(0, 10, _text(title), new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.ln(5)
+    def _dot(x: float, y: float, color: tuple):
+        """Draw a small colored circle indicator."""
+        pdf.set_fill_color(*color)
+        pdf.ellipse(x, y + 2, 3, 3, "F")
 
-    for i, acc in enumerate(accounts):
-        # Check if we need a new page (~130mm per account block, page usable ~267mm)
-        if pdf.get_y() > 150:
-            pdf.add_page()
+    def _labeled_line(x: float, text_w: float, label: str, color: tuple, size: int = 10):
+        """Draw a dot + label text line."""
+        y = pdf.get_y()
+        _dot(x, y, color)
+        pdf.set_xy(x + 5, y)
+        _set_font("", size)
+        pdf.set_text_color(*_TEXT_SECONDARY)
+        pdf.cell(text_w - 5, 7, _text(label), new_x="LMARGIN", new_y="NEXT")
 
-        # Separator line between accounts (not before the first one)
-        if i > 0:
-            pdf.set_draw_color(180, 180, 180)
-            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-            pdf.ln(5)
+    def _draw_header():
+        """Draw the page header bar."""
+        pdf.set_fill_color(*_BG_HEADER)
+        pdf.rect(0, 0, 210, 24, "F")
+        pdf.set_y(6)
+        _set_font("B", 14)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(0, 12, _text(title), align="C")
+        pdf.set_text_color(*_TEXT_PRIMARY)
+        pdf.set_y(28)
 
-        # Account number + email
-        _set_font("B", 12)
-        pdf.cell(0, 8, _text(f"{i + 1}. {acc['email']}"), new_x="LMARGIN", new_y="NEXT")
-
-        # Traffic / duration line
-        _set_font("", 10)
-        info = t("pdf_traffic", uid, traffic=acc["traffic"]) + "  |  " + t("pdf_duration", uid, duration=acc["duration"])
-        pdf.cell(0, 6, _text(info), new_x="LMARGIN", new_y="NEXT")
-
-        # Panel name if available
-        if acc.get("panel"):
-            pdf.cell(0, 6, _text(t("pdf_panel", uid, panel=acc["panel"])), new_x="LMARGIN", new_y="NEXT")
-
-        # Subscription link if available
-        if acc.get("sub_link"):
-            _set_font("", 9)
-            pdf.cell(0, 6, _text(t("pdf_subscription", uid, link=acc["sub_link"])), new_x="LMARGIN", new_y="NEXT")
-
-        pdf.ln(2)
-
-        # QR code + proxy link side by side
+    def _draw_card(acc: dict, index: int):
+        """Draw a single account card."""
+        card_w = 180
+        card_x = 15
         qr_img = acc.get("qr_image")
         proxy_link = acc.get("proxy_link", "")
+        qr_size = 48
 
+        # Estimate card height
+        card_h = 64
+        if acc.get("sub_link"):
+            card_h += 7
         if qr_img:
-            qr_x = pdf.get_x()
-            qr_y = pdf.get_y()
-            qr_size = 60  # mm
+            card_h = max(card_h, qr_size + 30)
+        if proxy_link:
+            link_chars = len(proxy_link)
+            link_lines = max(1, link_chars // 60 + 1)
+            card_h += link_lines * 4 + 6
 
-            # Write QR image to a temp file (fpdf needs a file path)
+        # Check if card fits on page
+        if pdf.get_y() + card_h + 6 > 278:
+            pdf.add_page()
+            _draw_header()
+
+        start_y = pdf.get_y()
+
+        # Card background
+        pdf.set_fill_color(*_BG_CARD)
+        pdf.set_draw_color(*_BORDER_CARD)
+        pdf.rect(card_x, start_y, card_w, card_h, "DF")
+
+        # Accent stripe on the left
+        pdf.set_fill_color(*_ACCENT)
+        pdf.rect(card_x, start_y, 3, card_h, "F")
+
+        # Account number
+        num_x = card_x + 8
+        num_y = start_y + 5
+        _set_font("B", 12)
+        pdf.set_text_color(*_ACCENT)
+        pdf.set_xy(num_x, num_y)
+        pdf.cell(12, 8, _text(f"#{index + 1}"))
+
+        # Email title
+        pdf.set_xy(num_x + 14, num_y)
+        _set_font("B", 13)
+        pdf.set_text_color(*_TEXT_PRIMARY)
+        pdf.cell(0, 8, _text(acc["email"]))
+
+        # Thin separator under email
+        sep_y = num_y + 11
+        pdf.set_draw_color(*_BORDER_CARD)
+        pdf.line(card_x + 7, sep_y, card_x + card_w - 7, sep_y)
+
+        # Info section
+        info_y = sep_y + 3
+        info_x = card_x + 8
+        text_w = card_w - 16
+        if qr_img:
+            text_w = card_w - qr_size - 24
+
+        pdf.set_y(info_y)
+
+        # Traffic line with green dot
+        _labeled_line(info_x, text_w,
+                      t("pdf_traffic", uid, traffic=acc["traffic"]),
+                      _GREEN)
+
+        # Duration line with orange dot
+        _labeled_line(info_x, text_w,
+                      t("pdf_duration", uid, duration=acc["duration"]),
+                      _ORANGE)
+
+        # Panel line with purple dot
+        if acc.get("panel"):
+            _labeled_line(info_x, text_w,
+                          t("pdf_panel", uid, panel=acc["panel"]),
+                          _PURPLE)
+
+        # Subscription line with teal dot
+        if acc.get("sub_link"):
+            y = pdf.get_y()
+            _dot(info_x, y, _TEAL)
+            pdf.set_xy(info_x + 5, y)
+            _set_font("", 9)
+            pdf.set_text_color(*_ACCENT)
+            pdf.cell(text_w - 5, 6, _text(t("pdf_subscription", uid, link=acc["sub_link"])),
+                     new_x="LMARGIN", new_y="NEXT")
+
+        # QR code on the right side
+        if qr_img:
+            qr_x = card_x + card_w - qr_size - 8
+            qr_y = start_y + 7
+
             qr_img.seek(0)
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
                 tmp.write(qr_img.read())
                 tmp_path = tmp.name
             tmp_files.append(tmp_path)
+
+            pdf.set_fill_color(255, 255, 255)
+            pdf.rect(qr_x - 2, qr_y - 2, qr_size + 4, qr_size + 4, "F")
             pdf.image(tmp_path, x=qr_x, y=qr_y, w=qr_size, h=qr_size)
 
-            # Proxy link beside the QR code in monospace
-            if proxy_link:
-                pdf.set_xy(qr_x + qr_size + 5, qr_y)
-                pdf.set_font("Courier", "", 7)
-                # Wrap the proxy link text in the remaining width
-                link_width = 200 - (qr_x + qr_size + 5) - 10
-                pdf.multi_cell(link_width, 4, _sanitize(proxy_link))
+        # Proxy link at the bottom of the card
+        if proxy_link:
+            link_y = max(pdf.get_y() + 2, start_y + (qr_size + 14 if qr_img else 0))
+            pdf.set_xy(info_x, link_y)
+            _set_font("", 7)
+            pdf.set_text_color(*_TEXT_MUTED)
+            pdf.multi_cell(card_w - 16, 4, _text(proxy_link))
+            pdf.set_text_color(*_TEXT_PRIMARY)
 
-            pdf.set_y(qr_y + qr_size + 3)
-        elif proxy_link:
-            # No QR, just show the link
-            pdf.set_font("Courier", "", 7)
-            pdf.multi_cell(0, 4, _sanitize(proxy_link))
-            pdf.ln(3)
+        pdf.set_y(start_y + card_h + 5)
+
+    # First page
+    pdf.add_page()
+    _draw_header()
+
+    for i, acc in enumerate(accounts):
+        _draw_card(acc, i)
 
     buf = io.BytesIO()
     buf.write(pdf.output())
@@ -175,7 +268,6 @@ def generate_account_pdf(accounts: list[dict], title: str, uid: int = 0) -> io.B
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     buf.name = f"accounts_{stamp}.pdf"
 
-    # Clean up temp QR image files
     for f in tmp_files:
         try:
             os.unlink(f)

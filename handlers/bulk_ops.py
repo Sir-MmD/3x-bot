@@ -5,9 +5,9 @@ import time
 
 from telethon import events, Button
 
-from config import get_panel, st, clear, bot, visible_panels, visible_inbounds, server_addrs, sub_urls
+from config import get_panel, st, clear, bot, visible_panels, visible_inbounds, user_inbounds, server_addrs, sub_urls
 from db import log_activity
-from helpers import auth, reply, answer, format_bytes, format_expiry, make_qr
+from helpers import auth, reply, answer, format_bytes, format_expiry, make_qr, format_inbound_button_label, build_client_dict, rand_email, generate_bulk_emails
 from i18n import t
 from panel import build_client_link, SUPPORTED_PROTOCOLS
 from pdf_export import generate_account_pdf
@@ -236,12 +236,54 @@ async def _show_manual_result(event, uid, found_count, not_found):
     btns = [
         [Button.inline(t("btn_days", uid), b"bot:d"), Button.inline(t("btn_traffic", uid), b"bot:t")],
         [Button.inline(t("btn_enable_all", uid), b"bot:en"), Button.inline(t("btn_disable_all", uid), b"bot:dis")],
-        [Button.inline(t("btn_remove_all", uid), b"bot:rm")],
+        [Button.inline(t("btn_remove_all", uid), b"bot:rm"),
+         Button.inline(t("btn_move_all", uid), b"bot:mv")],
         [Button.inline(t("btn_export", uid), b"boe")],
         [Button.inline(t("btn_back", uid), _back_data(uid)),
          Button.inline(t("btn_main_menu", uid), b"m")],
     ]
     await reply(event, "\n".join(lines), buttons=btns)
+
+
+async def handle_bulk_move_naming_input(event) -> bool:
+    """Handle bomv_prefix / bomv_postfix text input. Returns True if handled."""
+    uid = event.sender_id
+    s = st(uid)
+    state = s.get("state")
+
+    if state == "bomv_prefix":
+        s["state"] = None
+        prefix = event.text.strip()
+        if not prefix:
+            s["state"] = "bomv_prefix"
+            await event.respond(t("prefix_empty", uid))
+            return True
+        naming = s.get("bo_mv_naming", {})
+        naming["prefix"] = prefix
+        method = naming.get("method", "")
+        if method in ("pnrx", "pnx"):
+            s["state"] = "bomv_postfix"
+            await event.respond(
+                t("enter_postfix_prompt", uid, prefix=prefix),
+                buttons=[[Button.inline(t("btn_cancel", uid), b"bot:mv")]],
+            )
+        else:
+            await _bulk_move_execute(event, uid)
+        return True
+
+    if state == "bomv_postfix":
+        s["state"] = None
+        postfix = event.text.strip()
+        if not postfix:
+            s["state"] = "bomv_postfix"
+            await event.respond(t("postfix_empty", uid))
+            return True
+        naming = s.get("bo_mv_naming", {})
+        naming["postfix"] = postfix
+        await _bulk_move_execute(event, uid)
+        return True
+
+    return False
 
 
 async def handle_bulk_op_input(event):
@@ -292,6 +334,174 @@ async def handle_bulk_op_input(event):
         s["bo_value"] = gb
         await _bulk_op_execute(event, uid)
     return True
+
+
+async def _delete_client_safe(panel_client, inbound_id, client_id, protocol):
+    """Delete a client, working around 3x-ui rejecting empty inbounds."""
+    try:
+        await panel_client.delete_client(inbound_id, client_id)
+    except RuntimeError as e:
+        if "no client remained" not in str(e).lower():
+            raise
+        import uuid as _uuid
+        ph = {
+            "id": str(_uuid.uuid4()), "email": f"_moved_{int(time.time())}",
+            "enable": False, "totalGB": 0, "expiryTime": 1,
+            "limitIp": 0, "subId": "", "comment": "", "reset": 0,
+            "flow": "", "tgId": 0,
+        }
+        if protocol == "trojan":
+            ph["password"] = "placeholder0"
+        elif protocol == "shadowsocks":
+            ph["password"] = ""
+        await panel_client.add_client(inbound_id, ph)
+        await panel_client.delete_client(inbound_id, client_id)
+
+
+async def _bulk_move_execute(event, uid: int):
+    """Execute bulk move: add each client to target, delete from source."""
+    s = st(uid)
+    clients = s.get("bo_clients", [])
+    target_panel = s.get("bo_mv_panel")
+    target_iid = s.get("bo_mv_iid")
+
+    if not clients or not target_panel or not target_iid:
+        return
+
+    target_p = get_panel(target_panel)
+    target_inbounds = await target_p.list_inbounds()
+    target_ib = next((ib for ib in target_inbounds if ib["id"] == target_iid), None)
+    if not target_ib:
+        await reply(event, t("inbound_not_found", uid),
+                    buttons=[[Button.inline(t("btn_back", uid), b"m")]])
+        clear(uid)
+        return
+
+    target_proto = target_ib["protocol"]
+    target_stream = json.loads(target_ib.get("streamSettings", "{}"))
+    target_settings = json.loads(target_ib.get("settings", "{}"))
+
+    # Collect existing emails on the target panel, excluding source inbounds
+    src_iids_on_panel = {iid for _, iid, _, _, pn in clients if pn == target_panel}
+    existing_emails: set[str] = set()
+    for ib in target_inbounds:
+        if ib["id"] in src_iids_on_panel:
+            continue
+        for c in json.loads(ib.get("settings", "{}")).get("clients", []):
+            existing_emails.add(c.get("email", "").lower())
+
+    # Build rename map for duplicates using the chosen naming method
+    rename_map: dict[str, str] = {}
+    naming = s.get("bo_mv_naming")  # None if no duplicates / method "r" etc.
+    if naming:
+        method = naming.get("method", "r")
+        prefix = naming.get("prefix", "")
+        postfix = naming.get("postfix", "")
+        dup_emails = [
+            client.get("email", "")
+            for client, _iid, _cid, _proto, _pn in clients
+            if client.get("email", "").lower() in existing_emails
+        ]
+        if dup_emails:
+            new_names = generate_bulk_emails(method, len(dup_emails), prefix, postfix)
+            for old, new in zip(dup_emails, new_names):
+                rename_map[old.lower()] = new
+
+    progress_msg = await bot.send_message(
+        event.chat_id,
+        t("bo_processing", uid, done=0, total=len(clients)),
+    )
+
+    success = 0
+    failed = 0
+    done_count = 0
+    total = len(clients)
+
+    by_group: dict[tuple[str, int], list] = {}
+    for client, iid, cid, proto, pname in clients:
+        by_group.setdefault((pname, iid), []).append((client, iid, cid, proto, pname))
+
+    for (src_panel_name, src_iid_key), group in by_group.items():
+        src_p = get_panel(src_panel_name)
+        same_panel = src_panel_name == target_panel
+        # Fetch traffic stats for this source inbound
+        src_inbounds = await src_p.list_inbounds()
+        src_ib = next((ib for ib in src_inbounds if ib["id"] == src_iid_key), None)
+        stats = {}
+        if src_ib:
+            stats = {cs["email"]: cs for cs in src_ib.get("clientStats") or []}
+        for client, src_iid, src_cid, src_proto, _pn in group:
+            try:
+                email = client.get("email", "")
+                # Calculate remaining traffic
+                tr = stats.get(email) or {}
+                used = tr.get("up", 0) + tr.get("down", 0)
+                orig_total = client.get("totalGB", 0)
+                remaining_total = max(1, orig_total - used) if orig_total > 0 else 0
+                # Rename if duplicate (only for truly duplicate emails)
+                if email.lower() in rename_map:
+                    email = rename_map[email.lower()]
+                elif email.lower() in existing_emails:
+                    email = rand_email()
+                if src_proto == target_proto:
+                    new_client = dict(client)
+                    new_client["email"] = email
+                else:
+                    new_client = build_client_dict(
+                        email, orig_total, client.get("expiryTime", 0),
+                        target_proto, target_stream, target_settings,
+                    )
+                    new_client["enable"] = client.get("enable", True)
+                new_client["totalGB"] = remaining_total
+                if target_proto == "vless":
+                    net = target_stream.get("network", "")
+                    sec = target_stream.get("security", "")
+                    if net == "tcp" and sec in ("tls", "reality"):
+                        new_client["flow"] = "xtls-rprx-vision"
+                    else:
+                        new_client["flow"] = ""
+                if same_panel:
+                    await _delete_client_safe(src_p, src_iid, src_cid, src_proto)
+                    await target_p.add_client(target_iid, new_client)
+                else:
+                    await target_p.add_client(target_iid, new_client)
+                    await _delete_client_safe(src_p, src_iid, src_cid, src_proto)
+                existing_emails.add(email.lower())
+                success += 1
+            except Exception:
+                failed += 1
+            done_count += 1
+            if done_count % 10 == 0 or done_count == total:
+                try:
+                    await progress_msg.edit(t("bo_processing", uid, done=done_count, total=total))
+                except Exception:
+                    pass
+
+    try:
+        await progress_msg.delete()
+    except Exception:
+        pass
+
+    log_activity(uid, "bulk_move", json.dumps({
+        "target_panel": target_panel, "target_inbound": target_iid,
+        "success": success, "failed": failed,
+    }))
+
+    lines = [
+        t("bo_move_success", uid),
+        "",
+        t("bo_move_target", uid, panel=target_panel, inbound=target_ib.get("remark", str(target_iid))),
+        "",
+        t("bo_success", uid, count=success),
+        t("bo_failed", uid, count=failed),
+    ]
+    await bot.send_message(
+        event.chat_id,
+        "\n".join(lines),
+        buttons=[[Button.inline(t("btn_back", uid), b"m")]],
+        parse_mode="md",
+    )
+    clear(uid)
 
 
 def _inbound_selector_buttons(uid, inbounds_with_panel, selected):
@@ -568,7 +778,8 @@ def register(bot):
             buttons=[
                 [Button.inline(t("btn_days", uid), b"bot:d"), Button.inline(t("btn_traffic", uid), b"bot:t")],
                 [Button.inline(t("btn_enable_all", uid), b"bot:en"), Button.inline(t("btn_disable_all", uid), b"bot:dis")],
-                [Button.inline(t("btn_remove_all", uid), b"bot:rm")],
+                [Button.inline(t("btn_remove_all", uid), b"bot:rm"),
+                 Button.inline(t("btn_move_all", uid), b"bot:mv")],
                 [Button.inline(t("btn_export", uid), b"boe")],
                 [Button.inline(t("btn_back", uid), _back_data(uid)),
                  Button.inline(t("btn_main_menu", uid), b"m")],
@@ -747,6 +958,111 @@ def register(bot):
     @auth("bulk")
     async def cb_bulk_remove_execute(event):
         await _bulk_action_execute(event, event.sender_id, "remove")
+
+    # ── Bulk Move ──────────────────────────────────────────────────────
+
+    @bot.on(events.CallbackQuery(data=b"bot:mv"))
+    @auth("bulk")
+    async def cb_bulk_move_start(event):
+        """Show panel picker for bulk move target."""
+        uid = event.sender_id
+        s = st(uid)
+        if not s.get("bo_clients"):
+            return
+        vp = visible_panels(uid)
+        btns = [[Button.inline(f"\U0001f5a5 {name}", f"bomvp:{name}".encode())] for name in sorted(vp)]
+        filt = s.get("bo_filter", "all")
+        back = f"bof:{filt}".encode() if filt != "manual" else _back_data(uid)
+        btns.append([Button.inline(t("btn_back", uid), back),
+                     Button.inline(t("btn_main_menu", uid), b"m")])
+        await reply(event, t("bo_mv_pick_panel", uid), buttons=btns)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^bomvp:(.+)$"))
+    @auth("bulk")
+    async def cb_bulk_move_panel(event):
+        """Show inbound picker for bulk move target."""
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        s = st(uid)
+        s["bo_mv_panel"] = panel_name
+        p = get_panel(panel_name)
+        inbounds = await p.list_inbounds()
+        inbounds = visible_inbounds(uid, panel_name, inbounds)
+        btns = []
+        for ib in inbounds:
+            label = format_inbound_button_label(ib)
+            btns.append([Button.inline(label, f"bomvi:{panel_name}:{ib['id']}".encode())])
+        btns.append([Button.inline(t("btn_back", uid), b"bot:mv"),
+                     Button.inline(t("btn_main_menu", uid), b"m")])
+        await reply(event, t("bo_mv_pick_inbound", uid, panel=panel_name), buttons=btns)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^bomvi:(.+):(\d+)$"))
+    @auth("bulk")
+    async def cb_bulk_move_select_inbound(event):
+        """Check for duplicates, show naming picker if needed, else execute."""
+        uid = event.sender_id
+        panel_name = event.pattern_match.group(1).decode()
+        iid = int(event.pattern_match.group(2))
+        s = st(uid)
+        s["bo_mv_panel"] = panel_name
+        s["bo_mv_iid"] = iid
+        s["bo_mv_naming"] = None
+
+        # Check for duplicates across the target panel, excluding source inbounds
+        target_p = get_panel(panel_name)
+        target_inbounds = await target_p.list_inbounds()
+        clients = s.get("bo_clients", [])
+        # Source inbound IDs on this same panel — skip these in the dup check
+        src_iids_on_panel = {iid_c for _, iid_c, _, _, pn in clients if pn == panel_name}
+        existing: set[str] = set()
+        for ib in target_inbounds:
+            if ib["id"] in src_iids_on_panel:
+                continue
+            for c in json.loads(ib.get("settings", "{}")).get("clients", []):
+                existing.add(c.get("email", "").lower())
+
+        dup_count = sum(1 for c, *_ in clients if c.get("email", "").lower() in existing)
+
+        if dup_count == 0:
+            await _bulk_move_execute(event, uid)
+            return
+
+        # Duplicates found — show naming picker for the duplicates
+        btns = [
+            [
+                Button.inline(t("btn_random", uid), b"bomvn:r"),
+                Button.inline(t("btn_rand_prefix", uid), b"bomvn:rp"),
+                Button.inline(t("btn_prefix_rand", uid), b"bomvn:pr"),
+            ],
+            [
+                Button.inline(t("btn_prefix_num_rand", uid), b"bomvn:pnr"),
+                Button.inline(t("btn_prefix_num_rand_post", uid), b"bomvn:pnrx"),
+            ],
+            [
+                Button.inline(t("btn_prefix_num", uid), b"bomvn:pn"),
+                Button.inline(t("btn_prefix_num_post", uid), b"bomvn:pnx"),
+            ],
+            [Button.inline(t("btn_cancel", uid), b"bot:mv")],
+        ]
+        await reply(event,
+                    t("bo_mv_dup_naming", uid, count=dup_count),
+                    buttons=btns)
+
+    @bot.on(events.CallbackQuery(pattern=rb"^bomvn:(.+)$"))
+    @auth("bulk")
+    async def cb_bulk_move_naming(event):
+        """Naming method selected for duplicate renaming."""
+        uid = event.sender_id
+        method = event.pattern_match.group(1).decode()
+        s = st(uid)
+        s["bo_mv_naming"] = {"method": method}
+        if method == "r":
+            # Random — no prefix needed, execute immediately
+            await _bulk_move_execute(event, uid)
+        else:
+            s["state"] = "bomv_prefix"
+            await reply(event, t("enter_prefix_prompt", uid),
+                        buttons=[[Button.inline(t("btn_cancel", uid), b"bot:mv")]])
 
     # ── Enter Manually ─────────────────────────────────────────────────
 

@@ -36,6 +36,7 @@ class Panel:
     added_by: int
     created_at: float
     sort_order: int
+    secret_token: str = ""
 
 
 @dataclass
@@ -252,6 +253,13 @@ def _m9_activity_log_columns(con):
     con.execute("CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_log(action)")
 
 
+def _m10_panels_secret_token(con):
+    try:
+        con.execute("ALTER TABLE db_panels ADD COLUMN secret_token TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+
+
 _MIGRATIONS = [
     _m1_admins_panels,
     _m2_admins_inbounds,
@@ -262,6 +270,7 @@ _MIGRATIONS = [
     _m7_plans_table,
     _m8_test_account_table,
     _m9_activity_log_columns,
+    _m10_panels_secret_token,
 ]
 
 
@@ -558,8 +567,8 @@ def get_db_panels() -> list[Panel]:
         return _panels_cache
     con = sqlite3.connect(_DB_PATH)
     rows = con.execute(
-        "SELECT name, url, username, password, proxy, sub_url, added_by, created_at, sort_order"
-        " FROM db_panels ORDER BY sort_order, created_at"
+        "SELECT name, url, username, password, proxy, sub_url, added_by, created_at, sort_order,"
+        " COALESCE(secret_token, '') FROM db_panels ORDER BY sort_order, created_at"
     ).fetchall()
     con.close()
     result = [Panel(*r) for r in rows]
@@ -568,14 +577,14 @@ def get_db_panels() -> list[Panel]:
 
 
 def add_db_panel(name: str, url: str, username: str, password: str,
-                 proxy: str, sub_url: str, added_by: int):
+                 proxy: str, sub_url: str, added_by: int, secret_token: str = ""):
     global _panels_cache
     con = sqlite3.connect(_DB_PATH)
     max_order = con.execute("SELECT COALESCE(MAX(sort_order), -1) FROM db_panels").fetchone()[0]
     con.execute(
-        "INSERT INTO db_panels (name, url, username, password, proxy, sub_url, added_by, created_at, sort_order)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (name, url, username, password, proxy, sub_url, added_by, time.time(), max_order + 1),
+        "INSERT INTO db_panels (name, url, username, password, proxy, sub_url, added_by, created_at, sort_order, secret_token)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (name, url, username, password, proxy, sub_url, added_by, time.time(), max_order + 1, secret_token),
     )
     con.commit()
     con.close()
@@ -599,7 +608,7 @@ def remove_db_panel(name: str):
     _panels_cache = None
 
 
-_PANEL_FIELDS = {"url", "username", "password", "proxy", "sub_url"}
+_PANEL_FIELDS = {"url", "username", "password", "proxy", "sub_url", "secret_token"}
 
 
 def update_db_panel_field(name: str, field: str, value: str):
@@ -798,48 +807,6 @@ def remove_plan(plan_id: int):
     con.commit()
     con.close()
     _plans_cache = None
-
-
-# ── Test Account Config ──────────────────────────────────────────────────────
-
-def get_test_account() -> dict | None:
-    """Return test account config dict or None if disabled."""
-    con = sqlite3.connect(_DB_PATH)
-    row = con.execute(
-        "SELECT method, prefix, postfix, traffic, days, sau FROM test_account_config WHERE id = 1"
-    ).fetchone()
-    con.close()
-    if not row:
-        return None
-    return {
-        "method": row[0], "prefix": row[1], "postfix": row[2],
-        "traffic": row[3], "days": row[4], "sau": bool(row[5]),
-    }
-
-
-def set_test_account(method: str, prefix: str, postfix: str,
-                     traffic: float, days: int, sau: bool):
-    """Set test account config (upsert single row)."""
-    con = sqlite3.connect(_DB_PATH)
-    con.execute(
-        "INSERT INTO test_account_config (id, method, prefix, postfix, traffic, days, sau, updated_at)"
-        " VALUES (1, ?, ?, ?, ?, ?, ?, ?)"
-        " ON CONFLICT(id) DO UPDATE SET"
-        " method=excluded.method, prefix=excluded.prefix, postfix=excluded.postfix,"
-        " traffic=excluded.traffic, days=excluded.days, sau=excluded.sau,"
-        " updated_at=excluded.updated_at",
-        (method, prefix, postfix, traffic, days, int(sau), time.time()),
-    )
-    con.commit()
-    con.close()
-
-
-def clear_test_account():
-    """Disable test account by removing the config row."""
-    con = sqlite3.connect(_DB_PATH)
-    con.execute("DELETE FROM test_account_config WHERE id = 1")
-    con.commit()
-    con.close()
 
 
 # ── Activity Log ─────────────────────────────────────────────────────────────

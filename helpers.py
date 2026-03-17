@@ -1,4 +1,5 @@
 import io
+import json
 import random
 import secrets
 import string
@@ -417,6 +418,8 @@ def search_result_buttons(uid: int, status: str, back_data: bytes = b"m"):
         row2.append(Button.inline(t("btn_renew", uid), b"rn"))
     if row2:
         btns.append(row2)
+    if has_perm(uid, "modify"):
+        btns.append([Button.inline(t("btn_move", uid), b"mv")])
     row3 = []
     if has_perm(uid, "pdf"):
         row3.append(Button.inline(t("btn_pdf", uid), b"pdf"))
@@ -469,6 +472,31 @@ def format_client_line(client: dict, traffic: dict | None, uid: int) -> str:
         icon = "\u26d4" if (expired or traffic_exceeded) else "\u2705"  # ⛔ or ✅
 
     return f"`{email}` {icon} | {traffic_str} | {dur_str}"
+
+
+def format_inbound_button_label(ib: dict) -> str:
+    """Format an inbound for a button label: Icon Remark | Port | [active/total]."""
+    from panel import SUPPORTED_PROTOCOLS
+    icon = "\u2705" if ib.get("enable") else "\U0001f534"
+    clients = json.loads(ib.get("settings", "{}")).get("clients", [])
+    stats = {cs["email"]: cs for cs in ib.get("clientStats") or []}
+    now_ms = int(time.time() * 1000)
+    active = 0
+    for c in clients:
+        if not c.get("enable", True):
+            continue
+        exp = c.get("expiryTime", 0)
+        if exp > 0 and exp < now_ms:
+            continue
+        limit = c.get("totalGB", 0)
+        if limit > 0:
+            cs = stats.get(c.get("email", ""))
+            if cs and cs.get("up", 0) + cs.get("down", 0) >= limit:
+                continue
+        active += 1
+    total = len(clients)
+    proto_warn = "" if ib.get("protocol", "") in SUPPORTED_PROTOCOLS else " \u26a0\ufe0f"
+    return f"{icon} {ib['remark']} | {ib['port']} | [{active}/{total}]{proto_warn}"
 
 
 def main_menu_text(uid: int) -> str:

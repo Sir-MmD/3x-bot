@@ -329,11 +329,12 @@ def register(bot):
             return
         if target_uid == owner_id:
             return
+        name = get_display_name(target_uid)
         btns = [
             [Button.inline(t("btn_yes_remove", uid), f"op:rac:{target_uid}".encode())],
             [Button.inline(t("btn_cancel", uid), f"op:ad:{target_uid}".encode())],
         ]
-        await reply(event, t("op_confirm_remove_admin", uid, id=target_uid), buttons=btns)
+        await reply(event, t("op_confirm_remove_admin", uid, id=target_uid, name=name), buttons=btns)
 
     @bot.on(events.CallbackQuery(pattern=rb"^op:rac:(\d+)$"))
     @auth
@@ -343,9 +344,10 @@ def register(bot):
         target_uid = int(event.pattern_match.group(1))
         if target_uid == uid or target_uid == owner_id:
             return
+        name = get_display_name(target_uid)
         remove_db_admin(target_uid)
         log_activity(uid, "remove_admin", json.dumps({"target": target_uid}))
-        await reply(event, t("op_admin_removed", uid, id=target_uid),
+        await reply(event, t("op_admin_removed", uid, id=target_uid, name=name),
                     buttons=_back_btn(uid, b"op:admins"))
 
     # ── Edit Admin Panels ───────────────────────────────────────────────
@@ -569,6 +571,7 @@ def register(bot):
         selected_panels = s.get("op_aa_panels", {"*"})
         add_db_admin(target_uid, selected_perms, False, uid, admin_panels=selected_panels)
         log_activity(uid, "add_admin", json.dumps({"target": target_uid, "perms": sorted(selected_perms), "panels": sorted(selected_panels)}))
+        name = get_display_name(target_uid)
         clear(uid)
-        await reply(event, t("op_admin_added", uid, id=target_uid),
+        await reply(event, t("op_admin_added", uid, id=target_uid, name=name),
                     buttons=_back_btn(uid, b"op:admins"))

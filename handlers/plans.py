@@ -18,7 +18,7 @@ def format_plan_label(plan: dict, uid: int) -> str:
     traffic = plan.get("traffic", 0)
     d = f"{days}d" if days > 0 else unlim
     t_str = f"{traffic:g}GB" if traffic > 0 else unlim
-    sau = "\U0001f552" if plan.get("sau") else ""
+    sau = "-\U0001f552" if plan.get("sau") else ""
     return f"{plan['name']} ({d}-{t_str}{sau})"
 
 

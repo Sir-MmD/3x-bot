@@ -59,6 +59,7 @@ async def _show_panel_detail(event, uid: int, name: str):
     eff_user = edits.get("user", pd.username) if has_edits else pd.username
     eff_proxy = edits.get("proxy", pd.proxy) if has_edits else pd.proxy
     eff_sub = edits.get("sub", pd.sub_url) if has_edits else pd.sub_url
+    eff_2fa = edits.get("2fa", pd.secret_token) if has_edits else pd.secret_token
 
     lines = [t("op_panel_detail_title", uid)]
     if has_edits:
@@ -70,6 +71,8 @@ async def _show_panel_detail(event, uid: int, name: str):
     ])
     if has_edits and "pass" in edits:
         lines.append(t("op_panel_pass_changed", uid))
+    if has_edits and "2fa" in edits:
+        lines.append(t("op_panel_2fa_changed", uid))
     if eff_proxy:
         lines.append(t("op_panel_proxy_set", uid, proxy=eff_proxy))
     else:
@@ -78,6 +81,10 @@ async def _show_panel_detail(event, uid: int, name: str):
         lines.append(t("op_panel_sub_set", uid, sub=eff_sub))
     else:
         lines.append(t("op_panel_sub_none", uid))
+    if eff_2fa:
+        lines.append(t("op_panel_2fa_set", uid))
+    else:
+        lines.append(t("op_panel_2fa_none", uid))
 
     n = name
     btns = [
@@ -87,6 +94,7 @@ async def _show_panel_detail(event, uid: int, name: str):
          Button.inline(t("btn_edit_pass", uid), f"op:pe:pass:{n}".encode())],
         [Button.inline(t("btn_edit_proxy", uid), f"op:pe:proxy:{n}".encode()),
          Button.inline(t("btn_edit_sub", uid), f"op:pe:sub:{n}".encode())],
+        [Button.inline(t("btn_edit_2fa", uid), f"op:pe:2fa:{n}".encode())],
     ]
     if has_edits:
         btns.append([Button.inline(t("btn_confirm_test", uid), b"op:pet")])
@@ -144,6 +152,17 @@ async def _show_proxy_sub_prompt(event, uid, s):
                         ])
 
 
+async def _show_2fa_prompt(event, uid, s):
+    """Show 2FA secret token prompt after sub URL."""
+    s["state"] = "op_ap_2fa"
+    await event.respond(t("op_add_panel_prompt_2fa", uid),
+                        buttons=[
+                            [Button.inline(t("btn_skip", uid), b"op:apsk2")],
+                            [Button.inline(t("btn_back", uid), b"op:panels"),
+                             Button.inline(t("btn_main_menu", uid), b"m")],
+                        ])
+
+
 def _assemble_proxy_url(s):
     """Assemble proxy URL from state fields."""
     ptype = s.get("op_proxy_type", "http")
@@ -168,14 +187,14 @@ async def _finish_proxy_step(event, uid, s, flow, proxy_url):
         await _show_panel_detail(event, uid, name)
 
 
-async def _finalize_add_panel(event, uid, s, sub_url=""):
+async def _finalize_add_panel(event, uid, s):
     """Test connection and save new panel."""
     data = s["op_ap_data"]
-    data["sub_url"] = sub_url
 
     await event.respond(t("op_add_panel_testing", uid))
     pc = PanelClient(data["url"], data["username"], data["password"],
-                     name=data["name"], proxy=data["proxy"])
+                     name=data["name"], proxy=data["proxy"],
+                     secret_token=data.get("secret_token", ""))
     try:
         await pc.login()
     except Exception as e:
@@ -189,9 +208,9 @@ async def _finalize_add_panel(event, uid, s, sub_url=""):
     await pc.close()
 
     add_db_panel(data["name"], data["url"], data["username"], data["password"],
-                 data["proxy"], data["sub_url"], uid)
+                 data["proxy"], data.get("sub_url", ""), uid, data.get("secret_token", ""))
     register_panel(data["name"], data["url"], data["username"], data["password"],
-                   data["proxy"], data["sub_url"])
+                   data["proxy"], data.get("sub_url", ""), data.get("secret_token", ""))
     log_activity(uid, "add_panel", json.dumps({"name": data["name"]}))
     clear(uid)
     await event.respond(
@@ -306,8 +325,16 @@ async def _handle_proxy_step_input(event, uid, s):
 
 async def _handle_add_panel_sub(event, uid, s):
     text = event.text.strip()
-    sub_url = "" if text == "-" else text.rstrip("/")
-    await _finalize_add_panel(event, uid, s, sub_url)
+    s["op_ap_data"]["sub_url"] = "" if text == "-" else text.rstrip("/")
+    await _show_2fa_prompt(event, uid, s)
+    return True
+
+
+async def _handle_add_panel_2fa(event, uid, s):
+    text = event.text.strip()
+    s["op_ap_data"]["secret_token"] = "" if text == "-" else text
+    s["state"] = None
+    await _finalize_add_panel(event, uid, s)
     return True
 
 
@@ -344,6 +371,8 @@ async def _handle_panel_edit(event, uid, s):
         edits[field] = text
     elif field == "sub":
         edits["sub"] = "" if text == "-" else text.rstrip("/")
+    elif field == "2fa":
+        edits["2fa"] = "" if text == "-" else text
     else:
         return False
 
@@ -501,11 +530,24 @@ def register(bot):
         s = st(uid)
         if "op_ap_data" not in s:
             return
-        await _finalize_add_panel(event, uid, s, sub_url="")
+        s["op_ap_data"]["sub_url"] = ""
+        await _show_2fa_prompt(event, uid, s)
+
+    @bot.on(events.CallbackQuery(data=b"op:apsk2"))
+    @auth
+    @_require_owner
+    async def cb_skip_2fa(event):
+        uid = event.sender_id
+        s = st(uid)
+        if "op_ap_data" not in s:
+            return
+        s["op_ap_data"]["secret_token"] = ""
+        s["state"] = None
+        await _finalize_add_panel(event, uid, s)
 
     # ── Edit Panel ─────────────────────────────────────────────────────
 
-    @bot.on(events.CallbackQuery(pattern=rb"^op:pe:(\w+):([A-Za-z0-9_-]+)$"))
+    @bot.on(events.CallbackQuery(pattern=rb"^op:pe:([\w]+):([A-Za-z0-9_-]+)$"))
     @auth("manage_panel")
     async def cb_panel_edit_start(event):
         uid = event.sender_id
@@ -521,6 +563,7 @@ def register(bot):
             "pass": "op_pe_prompt_pass",
             "proxy": "op_pe_prompt_proxy",
             "sub": "op_pe_prompt_sub",
+            "2fa": "op_pe_prompt_2fa",
         }
         prompt_key = prompts.get(field)
         if not prompt_key:
@@ -564,12 +607,13 @@ def register(bot):
         eff_user = edits.get("user", pd.username)
         eff_pass = edits.get("pass", pd.password)
         eff_proxy = edits.get("proxy", pd.proxy)
+        eff_2fa = edits.get("2fa", pd.secret_token)
 
         # Test connection if any connectivity field changed
-        conn_changed = any(k in edits for k in ("url", "user", "pass", "proxy"))
+        conn_changed = any(k in edits for k in ("url", "user", "pass", "proxy", "2fa"))
         if conn_changed:
             pc = PanelClient(eff_url, eff_user, eff_pass,
-                             name=new_name, proxy=eff_proxy)
+                             name=new_name, proxy=eff_proxy, secret_token=eff_2fa)
             try:
                 await pc.login()
                 await pc.close()
@@ -604,7 +648,7 @@ def register(bot):
 
         # 3. Update changed fields
         field_map = {"url": "url", "user": "username", "pass": "password",
-                     "proxy": "proxy", "sub": "sub_url"}
+                     "proxy": "proxy", "sub": "sub_url", "2fa": "secret_token"}
         for short, db_col in field_map.items():
             if short in edits:
                 update_db_panel_field(target, db_col, edits[short])
@@ -613,7 +657,8 @@ def register(bot):
         pd_new = get_db_panel(target)
         if pd_new:
             register_panel(pd_new.name, pd_new.url, pd_new.username,
-                           pd_new.password, pd_new.proxy, pd_new.sub_url)
+                           pd_new.password, pd_new.proxy, pd_new.sub_url,
+                           pd_new.secret_token)
 
         log_activity(uid, "edit_panel", json.dumps({"name": target, "fields": list(edits.keys())}))
         clear(uid)

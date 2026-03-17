@@ -10,11 +10,11 @@ from config import st, has_perm, is_owner
 from db import get_db_admins, get_setting
 from helpers import auth, extract_ids_from_content
 from i18n import t
-from handlers.search import show_search_result
+from handlers.search import show_search_result, handle_move_email_input
 from handlers.modify import handle_modify_traffic_input, handle_modify_days_input, handle_renew_input
 from handlers.create import handle_create_input
 from handlers.bulk_create import handle_bulk_create_input
-from handlers.bulk_ops import handle_bulk_op_input, handle_bulk_op_manual
+from handlers.bulk_ops import handle_bulk_op_input, handle_bulk_op_manual, handle_bulk_move_naming_input
 from handlers.owner import handle_owner_input, handle_owner_restore
 
 # ── Rate limit tracker ────────────────────────────────────────────────────────
@@ -178,6 +178,16 @@ def register(bot):
         # ── Renew plan states ─────────────────────────────────────────
         if state and state.startswith("rn_"):
             if await handle_renew_input(event):
+                return
+
+        # ── Move account email input ─────────────────────────────────────
+        if state == "mv_email":
+            if await handle_move_email_input(event):
+                return
+
+        # ── Bulk move naming input ───────────────────────────────────────
+        if state and state.startswith("bomv_"):
+            if await handle_bulk_move_naming_input(event):
                 return
 
         # ── Bulk operation input ─────────────────────────────────────────

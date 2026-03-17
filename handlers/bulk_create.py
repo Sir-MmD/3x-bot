@@ -186,9 +186,9 @@ async def handle_bulk_create_input(event):
             s["state"] = "bk_count"
             await event.respond(t("bulk_count_invalid", uid))
             return True
-        if count < 1 or count > 100:
+        if count < 1:
             s["state"] = "bk_count"
-            await event.respond(t("bulk_count_range", uid))
+            await event.respond(t("bulk_count_invalid", uid))
             return True
         s["bk"]["count"] = count
         await event.respond(
@@ -280,10 +280,6 @@ async def handle_bulk_create_input(event):
         if not emails:
             s["state"] = "bk_emails"
             await event.respond(t("bulk_emails_empty", uid))
-            return True
-        if len(emails) > 100:
-            s["state"] = "bk_emails"
-            await event.respond(t("bulk_emails_max", uid))
             return True
         s["bk"]["emails"] = emails
         if "traffic_gb" in s["bk"]:
